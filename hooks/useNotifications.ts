@@ -1,14 +1,8 @@
 import { useEffect } from 'react'
-import * as Notifications from 'expo-notifications'
+import Constants from 'expo-constants'
 import { Platform } from 'react-native'
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-})
+const isExpoGo = Constants.appOwnership === 'expo'
 
 export interface NotificationSettings {
   morningEnabled: boolean
@@ -21,11 +15,24 @@ export interface NotificationSettings {
   closingTime: string
 }
 
-/**
- * Solicita permissão de notificações ao sistema. Necessário no Android 13+
- * e em todo iOS antes de qualquer agendamento funcionar.
- */
+async function getNotifications() {
+  if (isExpoGo) return null
+  return await import('expo-notifications')
+}
+
 export async function requestNotificationPermission(): Promise<boolean> {
+  const Notifications = await getNotifications()
+  if (!Notifications) return false
+
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  })
+
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
       name: 'North',
@@ -46,54 +53,54 @@ function parseTime(t: string): { hour: number; minute: number } {
   return { hour: h || 0, minute: m || 0 }
 }
 
-/**
- * Cancela todas as notificações locais agendadas do North.
- * Deve ser chamada quando o usuário desativa as notificações.
- */
 export async function cancelAllNotifications(): Promise<void> {
+  const Notifications = await getNotifications()
+  if (!Notifications) return
+
   await Notifications.cancelAllScheduledNotificationsAsync()
 }
 
-/**
- * Reagenda as notificações locais com base nas preferências do usuário.
- * Sempre cancela tudo antes, para nunca duplicar agendamentos.
- */
 export async function scheduleNotifications(settings: NotificationSettings): Promise<void> {
+  const Notifications = await getNotifications()
+  if (!Notifications) return
+
   await Notifications.cancelAllScheduledNotificationsAsync()
 
   const schedule = (hour: number, minute: number, title: string, body: string) =>
     Notifications.scheduleNotificationAsync({
       content: { title, body, sound: true },
-      trigger: { hour, minute, repeats: true } as Notifications.NotificationTriggerInput,
+      trigger: { hour, minute, repeats: true } as any,
     })
 
   if (settings.morningEnabled) {
     const { hour, minute } = parseTime(settings.morningTime)
     await schedule(hour, minute, '🧭 North', 'Hora de programar! Abra seus projetos.')
   }
+
   if (settings.prospectEnabled) {
     const { hour, minute } = parseTime(settings.prospectTime)
     await schedule(hour, minute, '🎯 Prospecção', 'Hora de buscar clientes. Meta: 10 contatos hoje.')
   }
+
   if (settings.indriveEnabled) {
     const { hour, minute } = parseTime(settings.indriveTime)
     await schedule(hour, minute, '🚗 Indrive', 'Hora de rodar! Meta: R$ 150 líquido hoje.')
   }
+
   if (settings.closingEnabled) {
     const { hour, minute } = parseTime(settings.closingTime)
     await schedule(hour, minute, '📊 Fechamento', 'Registre seus ganhos e feche o caixa do dia.')
   }
 }
 
-/**
- * Garante que o estado de notificações agendadas no dispositivo reflita
- * exatamente as preferências do usuário: se `enabled` for false, cancela
- * tudo; se for true, solicita permissão e (re)agenda.
- */
 export async function syncNotifications(
   enabled: boolean,
   settings: NotificationSettings
-): Promise<{ granted: boolean }> {
+): Promise<{ granted: boolean; expoGo?: boolean }> {
+  if (isExpoGo) {
+    return { granted: false, expoGo: true }
+  }
+
   if (!enabled) {
     await cancelAllNotifications()
     return { granted: true }
@@ -111,9 +118,20 @@ export async function syncNotifications(
 
 export function useNotifications() {
   useEffect(() => {
-    const sub = Notifications.addNotificationReceivedListener((notification) => {
-      console.log('Notificação recebida:', notification)
+    if (isExpoGo) return
+
+    let subscription: { remove: () => void } | null = null
+
+    getNotifications().then((Notifications) => {
+      if (!Notifications) return
+
+      subscription = Notifications.addNotificationReceivedListener((notification) => {
+        console.log('Notificação recebida:', notification)
+      })
     })
-    return () => sub.remove()
+
+    return () => {
+      subscription?.remove()
+    }
   }, [])
 }

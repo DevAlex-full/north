@@ -7,8 +7,8 @@ import { Button } from '../../components/ui/Button'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('alex@north.app')
-  const [password, setPassword] = useState('north2024')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuthStore()
   const router = useRouter()
