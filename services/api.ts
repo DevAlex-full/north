@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api/v1'
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://north-back.onrender.com/api/v1'
 
 const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
