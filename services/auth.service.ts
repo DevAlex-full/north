@@ -6,12 +6,16 @@ export interface RegisterData { name: string; email: string; password: string }
 
 export const authService = {
   async login(data: LoginData) {
+    await AsyncStorage.multiRemove(['@north:token', '@north:refreshToken', '@north:user'])
+
     const res = await api.post('/auth/login', data)
+
     await AsyncStorage.setItem('@north:token', res.data.accessToken)
     await AsyncStorage.setItem('@north:refreshToken', res.data.refreshToken)
     await AsyncStorage.setItem('@north:user', JSON.stringify(res.data.user))
+
     return res.data
-  },
+  },  
 
   async register(data: RegisterData) {
     const res = await api.post('/auth/register', data)
@@ -22,7 +26,7 @@ export const authService = {
   },
 
   async logout() {
-    try { await api.post('/auth/logout') } catch {}
+    try { await api.post('/auth/logout') } catch { }
     await AsyncStorage.multiRemove(['@north:token', '@north:refreshToken', '@north:user'])
   },
 

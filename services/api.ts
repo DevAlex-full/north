@@ -11,8 +11,17 @@ const api: AxiosInstance = axios.create({
 
 // Injeta token em todas as requisições
 api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem('@north:token')
-  if (token) config.headers.Authorization = `Bearer ${token}`
+  const url = config.url || ''
+  const isAuthPublicRoute =
+    url.includes('/auth/login') ||
+    url.includes('/auth/register') ||
+    url.includes('/auth/refresh')
+
+  if (!isAuthPublicRoute) {
+    const token = await AsyncStorage.getItem('@north:token')
+    if (token) config.headers.Authorization = `Bearer ${token}`
+  }
+
   return config
 })
 
