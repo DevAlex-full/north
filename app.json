@@ -2,6 +2,7 @@
   "expo": {
     "name": "North",
     "slug": "north-app",
+    "owner": "alexbueno.dev",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -11,7 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0F172A"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -33,6 +36,19 @@
         }
       ]
     ],
-    "scheme": "north"
+    "scheme": "north",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "baace5c1-68f0-44d3-88e3-9d261a9ec233"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/baace5c1-68f0-44d3-88e3-9d261a9ec233"
+    },
+    "ios": {}
   }
 }
