@@ -1,16 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native'
+import React, { useState, useCallback } from 'react'
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Alert } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { dashboardService } from '../../services/dashboard.service'
 import { taskService } from '../../services/task.service'
-import { financialService } from '../../services/financial.service'
 import { Card } from '../../components/ui/Card'
 import { ProgressBar } from '../../components/ui/ProgressBar'
 import { Badge } from '../../components/ui/Badge'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { LoadingScreen } from '../../components/ui/LoadingScreen'
-import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
+import { COLORS, SPACING, FONT_SIZE } from '../../constants/theme'
 import { formatCurrency } from '../../utils/format'
+import { formatLongDate } from '../../utils/date'
 import { useAuthStore } from '../../stores/auth.store'
 
 export default function DashboardScreen() {
@@ -58,7 +58,7 @@ export default function DashboardScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>{data?.greeting || `Bom dia, ${user?.name}`}</Text>
-          <Text style={styles.date}>{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
+          <Text style={styles.date}>{formatLongDate()}</Text>
         </View>
         <Text style={{ fontSize: 36 }}>🧭</Text>
       </View>
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.lg, paddingTop: SPACING.xl + 8 },
   greeting: { fontSize: FONT_SIZE.xl, fontWeight: '800', color: COLORS.text },
-  date: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginTop: 2, textTransform: 'capitalize' },
+  date: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginTop: 2 },
   metaCard: { marginHorizontal: SPACING.md, borderColor: COLORS.border },
   metaTitle: { color: COLORS.textSecondary, fontSize: FONT_SIZE.sm, fontWeight: '700', marginBottom: SPACING.md },
   metaBatida: { color: COLORS.success, fontSize: FONT_SIZE.lg, fontWeight: '900', textAlign: 'center', marginBottom: SPACING.sm },

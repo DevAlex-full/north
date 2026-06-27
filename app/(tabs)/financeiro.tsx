@@ -11,6 +11,7 @@ import { ProgressBar } from '../../components/ui/ProgressBar'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
 import { formatCurrency } from '../../utils/format'
+import { getTodayString, startOfDaySP, endOfDaySP, getWeekRangeSP, getMonthRangeSP, formatDateShort } from '../../utils/date'
 
 type Period = 'day' | 'week' | 'month'
 
@@ -23,26 +24,24 @@ const PERIOD_OPTIONS = [
 /**
  * Calcula o intervalo de datas (início/fim) correspondente ao período
  * selecionado, para filtrar tanto o resumo quanto a lista de transações.
+ * Sempre ancorado no calendário de São Paulo (não no fuso do dispositivo).
  */
 function getPeriodRange(period: Period): { startDate: string; endDate: string } {
-  const now = new Date()
+  const today = getTodayString()
   let start: Date
-  let end: Date = new Date(now)
-  end.setHours(23, 59, 59, 999)
+  let end: Date
 
   if (period === 'day') {
-    start = new Date(now)
-    start.setHours(0, 0, 0, 0)
+    start = startOfDaySP(today)
+    end = endOfDaySP(today)
   } else if (period === 'week') {
-    start = new Date(now)
-    start.setDate(now.getDate() - now.getDay())
-    start.setHours(0, 0, 0, 0)
-    end = new Date(start)
-    end.setDate(start.getDate() + 6)
-    end.setHours(23, 59, 59, 999)
+    const range = getWeekRangeSP(today)
+    start = range.start
+    end = range.end
   } else {
-    start = new Date(now.getFullYear(), now.getMonth(), 1)
-    end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    const range = getMonthRangeSP(today)
+    start = range.start
+    end = range.end
   }
 
   return { startDate: start.toISOString(), endDate: end.toISOString() }
@@ -76,7 +75,7 @@ export default function FinanceiroScreen() {
       const range = getPeriodRange(period)
       const [s, t, c, g] = await Promise.all([
         financialService.getSummary(period),
-        financialService.getTransactions(range), // ✅ agora filtra pelo período selecionado
+        financialService.getTransactions(range),
         financialService.getCategories(),
         financialService.getDailyGoal(),
       ])
@@ -225,7 +224,7 @@ export default function FinanceiroScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: COLORS.text, fontSize: FONT_SIZE.md, fontWeight: '600' }}>{t.category?.name || '-'}</Text>
                     {t.description ? <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.sm }}>{t.description}</Text> : null}
-                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 }}>{new Date(t.date).toLocaleDateString('pt-BR')}</Text>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 }}>{formatDateShort(t.date)}</Text>
                   </View>
                   <Text style={{ fontSize: FONT_SIZE.lg, fontWeight: '800', color: t.type === 'INCOME' ? COLORS.success : COLORS.danger }}>
                     {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}

@@ -1,8 +1,8 @@
 import React from 'react'
-import { View, StyleSheet, ViewStyle } from 'react-native'
+import { View, StyleSheet, StyleProp, ViewStyle } from 'react-native'
 import { COLORS, RADIUS, SPACING } from '../../constants/theme'
 
-interface Props { children: React.ReactNode; style?: ViewStyle; padding?: number }
+interface Props { children: React.ReactNode; style?: StyleProp<ViewStyle>; padding?: number }
 
 export function Card({ children, style, padding = SPACING.md }: Props) {
   return <View style={[styles.card, { padding }, style]}>{children}</View>

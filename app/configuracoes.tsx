@@ -1,8 +1,10 @@
 import React, { useState, useCallback } from 'react'
 import { View, Text, StyleSheet, ScrollView, Switch, Alert, TouchableOpacity } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
+import Constants from 'expo-constants'
 import { authService } from '../services/auth.service'
 import { useAuthStore } from '../stores/auth.store'
+import { useUpdateStore } from '../stores/update.store'
 import { syncNotifications, NotificationSettings } from '../hooks/useNotifications'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -18,9 +20,13 @@ const DEFAULT_TIMES = {
   closingTime: '21:00',
 }
 
+const APP_VERSION = Constants.expoConfig?.version || '1.0.0'
+
 export default function ConfiguracoesScreen() {
   const router = useRouter()
   const { user, logout, updateUser } = useAuthStore()
+  const checkManually = useUpdateStore(s => s.checkManually)
+  const isCheckingUpdate = useUpdateStore(s => s.isCheckingManually)
 
   const [name, setName] = useState(user?.name || '')
   const [dailyGoal, setDailyGoal] = useState('150')
@@ -158,6 +164,17 @@ export default function ConfiguracoesScreen() {
     }
   }
 
+  const handleCheckUpdates = async () => {
+    const result = await checkManually()
+    if (result === 'updated') {
+      Alert.alert('✅ Tudo certo', 'Você já está utilizando a versão mais recente.')
+    } else if (result === 'error') {
+      Alert.alert('Erro', 'Não foi possível verificar atualizações agora. Tente novamente mais tarde.')
+    }
+    // 'available' → o modal de atualização já é exibido automaticamente
+    // pela store, nada a fazer aqui.
+  }
+
   const confirmLogout = async () => {
     setShowLogoutModal(false)
     await logout()
@@ -264,6 +281,21 @@ export default function ConfiguracoesScreen() {
           </View>
         </Card>
 
+        {/* Atualizações */}
+        <SectionTitle label="🔄 Atualizações" />
+        <Card>
+          <Text style={styles.updateHint}>
+            O North é atualizado automaticamente em segundo plano. Toque no botão abaixo para verificar agora.
+          </Text>
+          <Button
+            title={isCheckingUpdate ? 'Verificando...' : 'Verificar atualizações'}
+            onPress={handleCheckUpdates}
+            loading={isCheckingUpdate}
+            size="md"
+            variant="secondary"
+          />
+        </Card>
+
         {/* Sobre */}
         <SectionTitle label="ℹ️ Sobre" />
         <Card>
@@ -273,7 +305,7 @@ export default function ConfiguracoesScreen() {
           </View>
           <View style={styles.aboutRow}>
             <Text style={styles.aboutLabel}>Versão</Text>
-            <Text style={styles.aboutValue}>1.0.0</Text>
+            <Text style={styles.aboutValue}>{APP_VERSION}</Text>
           </View>
           <View style={styles.aboutRow}>
             <Text style={styles.aboutLabel}>Usuário</Text>
@@ -347,6 +379,12 @@ const styles = StyleSheet.create({
   },
   previewLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs },
   previewValue: { color: COLORS.primary, fontSize: FONT_SIZE.sm, fontWeight: '800' },
+  updateHint: {
+    color: COLORS.textMuted,
+    fontSize: FONT_SIZE.sm,
+    marginBottom: SPACING.md,
+    lineHeight: 19,
+  },
   aboutRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

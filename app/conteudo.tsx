@@ -50,9 +50,6 @@ export default function ConteudoScreen() {
     finally { setSaving(false) }
   }
 
-  const insta = items.filter(i => i.platform === 'instagram')
-  const linkedin = items.filter(i => i.platform === 'linkedin')
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>

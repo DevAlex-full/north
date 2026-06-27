@@ -10,7 +10,7 @@ import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
-import { getTodayString } from '../../utils/date'
+import { getTodayString, getWeekDatesSP, formatWeekdayShortSP, getDayNumber } from '../../utils/date'
 
 const STATUS_OPTIONS = [
   { label: 'Pendente', value: 'PENDING' },
@@ -83,11 +83,9 @@ export default function AgendaScreen() {
     ])
   }
 
-  // Gera datas da semana
-  const weekDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - d.getDay() + i)
-    return d.toISOString().split('T')[0]
-  })
+  // Datas da semana (domingo a sábado) que contém hoje, sempre segundo
+  // o calendário de São Paulo — não depende do fuso do dispositivo.
+  const weekDates = getWeekDatesSP()
 
   const done = tasks.filter(t => t.status === 'DONE').length
 
@@ -101,15 +99,14 @@ export default function AgendaScreen() {
       {/* Seletor de dias */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.weekScroll} contentContainerStyle={{ paddingHorizontal: SPACING.md }}>
         {weekDates.map(date => {
-          const d = new Date(date + 'T12:00:00')
           const isSelected = date === selectedDate
           const isToday = date === getTodayString()
           return (
             <TouchableOpacity key={date} onPress={() => setSelectedDate(date)} style={[styles.dayBtn, isSelected && styles.dayBtnActive]}>
               <Text style={[styles.dayName, isSelected && { color: COLORS.primary }]}>
-                {d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}
+                {formatWeekdayShortSP(date)}
               </Text>
-              <Text style={[styles.dayNum, isSelected && { color: COLORS.primary, fontWeight: '800' }]}>{d.getDate()}</Text>
+              <Text style={[styles.dayNum, isSelected && { color: COLORS.primary, fontWeight: '800' }]}>{getDayNumber(date)}</Text>
               {isToday && <View style={styles.todayDot} />}
             </TouchableOpacity>
           )

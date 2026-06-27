@@ -10,6 +10,7 @@ import { Select } from '../components/ui/Select'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE } from '../constants/theme'
+import { formatDateShort } from '../utils/date'
 
 const STATUS_OPTIONS = [
   { label: '🔍 Encontrada', value: 'FOUND' },
@@ -78,7 +79,7 @@ export default function EmpregosScreen() {
                     <Text style={styles.position}>{j.position}</Text>
                     <Text style={styles.company}>🏢 {j.company}</Text>
                     {j.observations && <Text style={styles.obs}>{j.observations}</Text>}
-                    {j.appliedAt && <Text style={styles.obs}>📅 {new Date(j.appliedAt).toLocaleDateString('pt-BR')}</Text>}
+                    {j.appliedAt && <Text style={styles.obs}>📅 {formatDateShort(j.appliedAt)}</Text>}
                   </View>
                   <Badge status={j.status} />
                 </View>

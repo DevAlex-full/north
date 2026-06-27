@@ -125,8 +125,9 @@ export function useNotifications() {
     getNotifications().then((Notifications) => {
       if (!Notifications) return
 
-      subscription = Notifications.addNotificationReceivedListener((notification) => {
-        console.log('Notificação recebida:', notification)
+      subscription = Notifications.addNotificationReceivedListener(() => {
+        // Listener reservado para tratar notificações recebidas em
+        // primeiro plano no futuro (ex: navegar para uma tela específica).
       })
     })
 

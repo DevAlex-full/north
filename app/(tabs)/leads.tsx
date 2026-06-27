@@ -108,12 +108,6 @@ export default function LeadsScreen() {
     try { await leadService.update(lead.id, { status: newStatus }); await load() } catch {}
   }
 
-  const grouped = STATUS_OPTIONS.reduce((acc, s) => {
-    const group = leads.filter(l => l.status === s.value)
-    if (group.length > 0) acc[s.value] = group
-    return acc
-  }, {} as Record<string, any[]>)
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>

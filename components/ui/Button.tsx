@@ -1,5 +1,5 @@
 import React from 'react'
-import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle } from 'react-native'
+import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, StyleProp, ViewStyle } from 'react-native'
 import { COLORS, RADIUS, FONT_SIZE, SPACING } from '../../constants/theme'
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
   size?: 'sm' | 'md' | 'lg'
   loading?: boolean
   disabled?: boolean
-  style?: ViewStyle
+  style?: StyleProp<ViewStyle>
 }
 
 export function Button({ title, onPress, variant = 'primary', size = 'md', loading, disabled, style }: Props) {
