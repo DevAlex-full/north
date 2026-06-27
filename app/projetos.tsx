@@ -20,13 +20,27 @@ const STATUS_OPTIONS = [
   { label: '✅ Concluído', value: 'DONE' },
 ]
 
+const TASK_STATUS_OPTIONS = [
+  { label: '⏳ Pendente', value: 'PENDING' },
+  { label: '🚀 Em andamento', value: 'IN_PROGRESS' },
+  { label: '✅ Concluída', value: 'DONE' },
+]
+
+const TASK_PRIORITY_OPTIONS = [
+  { label: '🔴 Alta', value: '1' },
+  { label: '🟡 Média', value: '2' },
+  { label: '🟢 Baixa', value: '3' },
+]
+
 export default function ProjetosScreen() {
   const router = useRouter()
   const [projects, setProjects] = useState<any[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
+  const [showTaskEditModal, setShowTaskEditModal] = useState(false)
   const [editing, setEditing] = useState<any>(null)
+  const [editingTask, setEditingTask] = useState<any>(null)
   const [selectedProject, setSelectedProject] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -35,6 +49,11 @@ export default function ProjetosScreen() {
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState('IN_PROGRESS')
   const [taskTitle, setTaskTitle] = useState('')
+
+  // Form da edição de tarefa
+  const [taskEditTitle, setTaskEditTitle] = useState('')
+  const [taskEditStatus, setTaskEditStatus] = useState('PENDING')
+  const [taskEditPriority, setTaskEditPriority] = useState('2')
 
   const load = async () => {
     try { setProjects(await projectService.getAll()) } catch {}
@@ -79,6 +98,44 @@ export default function ProjetosScreen() {
     ])
   }
 
+  const openTaskEdit = (project: any, task: any) => {
+    setSelectedProject(project)
+    setEditingTask(task)
+    setTaskEditTitle(task.title)
+    setTaskEditStatus(task.status)
+    setTaskEditPriority(String(task.priority ?? 2))
+    setShowTaskEditModal(true)
+  }
+
+  const saveTaskEdit = async () => {
+    if (!taskEditTitle.trim()) { Alert.alert('Atenção', 'Título obrigatório'); return }
+    if (!selectedProject || !editingTask) return
+    setSaving(true)
+    try {
+      await projectService.updateTask(selectedProject.id, editingTask.id, {
+        title: taskEditTitle.trim(),
+        status: taskEditStatus,
+        priority: parseInt(taskEditPriority),
+      })
+      setShowTaskEditModal(false); await load()
+    } catch { Alert.alert('Erro', 'Não foi possível salvar a tarefa') }
+    finally { setSaving(false) }
+  }
+
+  const deleteTask = (project: any, task: any) => {
+    Alert.alert('Excluir tarefa', `Excluir "${task.title}"?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: async () => {
+          try { await projectService.deleteTask(project.id, task.id); await load() }
+          catch { Alert.alert('Erro', 'Não foi possível excluir a tarefa') }
+        },
+      },
+    ])
+  }
+
   const getProgress = (tasks: any[]) => {
     if (!tasks?.length) return 0
     return Math.round((tasks.filter(t => t.status === 'DONE').length / tasks.length) * 100)
@@ -111,7 +168,14 @@ export default function ProjetosScreen() {
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       <Badge status={p.status} />
-                      <TouchableOpacity onPress={() => openEdit(p)}><Text style={{ color: COLORS.primary, fontSize: FONT_SIZE.xs }}>Editar</Text></TouchableOpacity>
+                      <View style={styles.projectActions}>
+                        <TouchableOpacity onPress={() => openEdit(p)}>
+                          <Text style={{ color: COLORS.primary, fontSize: FONT_SIZE.xs, fontWeight: '700' }}>Editar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => deleteProject(p)}>
+                          <Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.xs, fontWeight: '700' }}>Excluir</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
                   <ProgressBar value={prog} total={100} label={`${p.projectTasks?.filter((t: any) => t.status === 'DONE').length || 0}/${p.projectTasks?.length || 0} tarefas`} />
@@ -120,7 +184,17 @@ export default function ProjetosScreen() {
                 {isExpanded && (
                   <View style={{ marginTop: SPACING.sm, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: SPACING.sm }}>
                     {(p.projectTasks || []).map((task: any) => (
-                      <Checkbox key={task.id} label={task.title} checked={task.status === 'DONE'} onToggle={() => toggleTask(p, task)} />
+                      <View key={task.id} style={styles.taskRow}>
+                        <View style={{ flex: 1 }}>
+                          <Checkbox label={task.title} checked={task.status === 'DONE'} onToggle={() => toggleTask(p, task)} />
+                        </View>
+                        <TouchableOpacity onPress={() => openTaskEdit(p, task)} style={styles.taskActionBtn}>
+                          <Text style={{ fontSize: FONT_SIZE.md }}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => deleteTask(p, task)} style={styles.taskActionBtn}>
+                          <Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.md }}>🗑</Text>
+                        </TouchableOpacity>
+                      </View>
                     ))}
                     <TouchableOpacity style={styles.addTaskBtn} onPress={() => { setSelectedProject(p); setTaskTitle(''); setShowTaskModal(true) }}>
                       <Text style={{ color: COLORS.primary, fontSize: FONT_SIZE.sm, fontWeight: '700' }}>+ Adicionar tarefa</Text>
@@ -144,6 +218,13 @@ export default function ProjetosScreen() {
         <Input label="Tarefa *" value={taskTitle} onChangeText={setTaskTitle} placeholder="Ex: Criar tela de login" />
         <Button title={saving ? 'Adicionando...' : 'Adicionar tarefa'} onPress={addTask} loading={saving} size="lg" style={{ marginTop: SPACING.sm }} />
       </Modal>
+
+      <Modal visible={showTaskEditModal} onClose={() => setShowTaskEditModal(false)} title="Editar tarefa">
+        <Input label="Título *" value={taskEditTitle} onChangeText={setTaskEditTitle} placeholder="Título da tarefa" />
+        <Select label="Status" value={taskEditStatus} options={TASK_STATUS_OPTIONS} onChange={setTaskEditStatus} />
+        <Select label="Prioridade" value={taskEditPriority} options={TASK_PRIORITY_OPTIONS} onChange={setTaskEditPriority} />
+        <Button title={saving ? 'Salvando...' : 'Salvar alterações'} onPress={saveTaskEdit} loading={saving} size="lg" style={{ marginTop: SPACING.sm }} />
+      </Modal>
     </View>
   )
 }
@@ -154,5 +235,8 @@ const styles = StyleSheet.create({
   title: { fontSize: FONT_SIZE.xl, fontWeight: '800', color: COLORS.text },
   projName: { color: COLORS.text, fontSize: FONT_SIZE.md, fontWeight: '700', marginBottom: 4 },
   projDesc: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginBottom: SPACING.sm },
+  projectActions: { flexDirection: 'row', gap: SPACING.sm, marginTop: 2 },
+  taskRow: { flexDirection: 'row', alignItems: 'center' },
+  taskActionBtn: { paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },
   addTaskBtn: { marginTop: SPACING.sm, paddingVertical: SPACING.sm, alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary + '44', borderRadius: 8, borderStyle: 'dashed' },
 })
