@@ -9,6 +9,15 @@ export const getStatusColor = (status: string): string => {
     SKIPPED: '#94A3B8', LOST: '#EF4444', REJECTED: '#EF4444',
     ALMOST: '#F59E0B', BELOW: '#EF4444',
     CONTACTED: '#3B82F6', REPLIED: '#3B82F6', SENT: '#3B82F6', PROPOSAL_SENT: '#3B82F6', VIEWED: '#3B82F6', APPLIED: '#3B82F6',
+    // --- Fase 4: Lead (cliente ativo) e pipeline comercial de Project ---
+    ACTIVE_CLIENT: '#10B981',
+    LEAD: '#64748B',
+    PROPOSAL: '#3B82F6',
+    DEVELOPMENT: '#6366F1',
+    DELIVERED: '#10B981',
+    SUPPORT: '#F59E0B',
+    PAUSED_CLIENT: '#94A3B8',
+    CANCELLED: '#EF4444',
   }
   return map[status] || '#64748B'
 }
@@ -22,8 +31,26 @@ export const getStatusLabel = (status: string): string => {
     ALMOST: '⚡ Quase lá', BELOW: 'Abaixo da meta',
     CONTACTED: 'Contatado', REPLIED: 'Respondeu', SENT: 'Enviado', PROPOSAL_SENT: 'Proposta enviada', VIEWED: 'Visualizado', APPLIED: 'Aplicado',
     PAUSED: 'Pausado', REUSE: 'Reaproveitar', TECHNICAL_TEST: 'Teste técnico',
+    // --- Fase 4: Lead (cliente ativo) e pipeline comercial de Project ---
+    ACTIVE_CLIENT: '✅ Cliente ativo',
+    LEAD: 'Lead',
+    PROPOSAL: 'Proposta',
+    DEVELOPMENT: 'Em desenvolvimento',
+    DELIVERED: 'Entregue',
+    SUPPORT: 'Em suporte',
+    PAUSED_CLIENT: 'Pausado',
+    CANCELLED: 'Cancelado',
   }
   return map[status] || status
 }
 
 export const getPriorityLabel = (p: number) => ['', '🔴 Alta', '🟡 Média', '🟢 Baixa'][p] || 'Normal'
+
+/** Rótulo legível para o tipo de projeto (Fase 4: PERSONAL | CLIENT). */
+export const getProjectKindLabel = (kind: string): string => {
+  const map: Record<string, string> = {
+    PERSONAL: 'Pessoal',
+    CLIENT: 'Cliente',
+  }
+  return map[kind] || kind
+}
