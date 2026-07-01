@@ -5,11 +5,16 @@ import { useAuthStore } from '../../stores/auth.store'
 import { Card } from '../../components/ui/Card'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
 
+const COMMERCIAL_ITEMS = [
+  { icon: '📊', label: 'Pipeline', subtitle: 'Funil de vendas e leads', route: '/pipeline' },
+  { icon: '📈', label: 'Dashboard Comercial', subtitle: 'Métricas e receita', route: '/dashboard-comercial' },
+  { icon: '🏗️', label: 'Projetos', subtitle: 'Pessoais e de clientes', route: '/projetos' },
+]
+
 const MENU_ITEMS = [
   { icon: '💼', label: 'Workana', subtitle: 'Propostas e projetos', route: '/workana' },
   { icon: '👔', label: 'Empregos', subtitle: 'Vagas em andamento', route: '/empregos' },
   { icon: '📝', label: 'Conteúdo', subtitle: 'Instagram e LinkedIn', route: '/conteudo' },
-  { icon: '🏗️', label: 'Projetos', subtitle: 'BarberFlow, LocaMed...', route: '/projetos' },
   { icon: '🏆', label: 'Metas 90 dias', subtitle: 'Seus grandes objetivos', route: '/metas' },
   { icon: '⚙️', label: 'Configurações', subtitle: 'Perfil e preferências', route: '/configuracoes' },
 ]
@@ -31,6 +36,25 @@ export default function MaisScreen() {
       </View>
 
       <View style={{ padding: SPACING.md }}>
+        <Text style={styles.sectionLabel}>💼 CRM Comercial</Text>
+        {COMMERCIAL_ITEMS.map((item) => (
+          <TouchableOpacity key={item.route} onPress={() => router.push(item.route as any)} activeOpacity={0.8}>
+            <Card style={styles.menuCard}>
+              <View style={styles.menuRow}>
+                <View style={[styles.menuIcon, { backgroundColor: COLORS.primary + '22' }]}>
+                  <Text style={{ fontSize: 24 }}>{item.icon}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuLabel}>{item.label}</Text>
+                  <Text style={styles.menuSub}>{item.subtitle}</Text>
+                </View>
+                <Text style={{ color: COLORS.textMuted, fontSize: 18 }}>›</Text>
+              </View>
+            </Card>
+          </TouchableOpacity>
+        ))}
+
+        <Text style={[styles.sectionLabel, { marginTop: SPACING.lg }]}>🛠️ Ferramentas</Text>
         {MENU_ITEMS.map((item) => (
           <TouchableOpacity key={item.route} onPress={() => router.push(item.route as any)} activeOpacity={0.8}>
             <Card style={styles.menuCard}>
@@ -59,6 +83,7 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: FONT_SIZE.xl, fontWeight: '800' },
   userName: { color: COLORS.text, fontSize: FONT_SIZE.lg, fontWeight: '700' },
   userEmail: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginTop: 2 },
+  sectionLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: SPACING.sm },
   menuCard: { marginBottom: SPACING.sm },
   menuRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
   menuIcon: { width: 48, height: 48, borderRadius: RADIUS.md, backgroundColor: COLORS.surfaceLight, alignItems: 'center', justifyContent: 'center' },

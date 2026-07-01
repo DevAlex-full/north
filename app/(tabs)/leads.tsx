@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { useLeadStore } from '../../stores/lead.store'
 import { useProjectStore } from '../../stores/project.store'
 import { projectService } from '../../services/project.service'
+import { useProjectsFinance } from '../../hooks/useProjectsFinance'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
@@ -13,6 +14,8 @@ import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
 import { formatCurrency } from '../../utils/format'
+import { formatDateShort } from '../../utils/date'
+import { getClientMetrics } from '../../utils/commercial'
 import type { Lead } from '../../types/lead.types'
 import type { Project } from '../../types/project.types'
 
@@ -49,10 +52,12 @@ export default function LeadsScreen() {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Lead | null>(null)
   const [saving, setSaving] = useState(false)
-
-  // Projetos vinculados ao cliente sendo visualizado/expandido
   const [expanded, setExpanded] = useState<string | null>(null)
   const [clientProjectsMap, setClientProjectsMap] = useState<Record<string, Project[]>>({})
+
+  // Financeiro dos projetos de cliente já carregados pela store
+  const clientProjects = projects.filter((p) => p.kind === 'CLIENT')
+  const { financeByProjectId } = useProjectsFinance(clientProjects.map((p) => p.id))
 
   // Form
   const [name, setName] = useState('')
@@ -88,11 +93,12 @@ export default function LeadsScreen() {
 
   const openEdit = (lead: Lead) => {
     setEditing(lead)
-    setName(lead.name || ''); setCompany(lead.company || ''); setNiche(lead.niche || '')
+    setName(lead.name); setCompany(lead.company || ''); setNiche(lead.niche || '')
     setPhone(lead.phone || ''); setEmail(lead.email || ''); setWhatsapp(lead.whatsapp || ''); setWebsite(lead.website || '')
     setInstagram(lead.instagram || ''); setOrigin(lead.origin || '')
-    setServiceInterest(lead.serviceInterest || ''); setEstimatedValue(lead.estimatedValue ? String(lead.estimatedValue) : '')
-    setStatus(lead.status || 'NEW'); setNextAction(lead.nextAction || '')
+    setServiceInterest(lead.serviceInterest || '')
+    setEstimatedValue(lead.estimatedValue != null ? String(lead.estimatedValue) : '')
+    setStatus(lead.status); setNextAction(lead.nextAction || '')
     setFollowUpAt(lead.followUpAt ? lead.followUpAt.split('T')[0] : '')
     setObservations(lead.observations || '')
     setShowModal(true)
@@ -130,7 +136,6 @@ export default function LeadsScreen() {
     try { await updateLead(lead.id, { status: newStatus }); await load() } catch {}
   }
 
-  /** Promove um lead negociando para Cliente Ativo de forma explícita. */
   const promoteToClient = (lead: Lead) => {
     Alert.alert('Promover a cliente', `Marcar "${lead.name}" como cliente ativo?`, [
       { text: 'Cancelar', style: 'cancel' },
@@ -151,12 +156,8 @@ export default function LeadsScreen() {
     }
   }
 
-  // Reaproveita os projetos de cliente já carregados pela store (fetchProjects('CLIENT'))
-  // como fallback imediato, evitando uma segunda chamada à API quando possível.
-  const getLinkedProjects = (lead: Lead): Project[] => {
-    if (clientProjectsMap[lead.id]) return clientProjectsMap[lead.id]
-    return projects.filter((p) => p.clientId === lead.id)
-  }
+  const getLinkedProjects = (lead: Lead): Project[] =>
+    clientProjectsMap[lead.id] ?? clientProjects.filter((p) => p.clientId === lead.id)
 
   return (
     <View style={styles.container}>
@@ -168,11 +169,9 @@ export default function LeadsScreen() {
         <Button title="+ Lead" onPress={openNew} size="sm" />
       </View>
 
-      {/* Filtro de status */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 48 }} contentContainerStyle={{ paddingHorizontal: SPACING.md, gap: SPACING.sm }}>
         {ALL_STATUS.map(s => (
-          <TouchableOpacity key={s.value} onPress={() => setFilterStatus(s.value)}
-            style={[styles.filterBtn, filterStatus === s.value && styles.filterActive]}>
+          <TouchableOpacity key={s.value} onPress={() => setFilterStatus(s.value)} style={[styles.filterBtn, filterStatus === s.value && styles.filterActive]}>
             <Text style={[styles.filterText, filterStatus === s.value && { color: COLORS.primary }]}>{s.label}</Text>
           </TouchableOpacity>
         ))}
@@ -188,6 +187,9 @@ export default function LeadsScreen() {
             const isActiveClient = lead.status === 'ACTIVE_CLIENT'
             const isExpanded = expanded === lead.id
             const linkedProjects = isExpanded ? getLinkedProjects(lead) : []
+            const clientMetrics = isActiveClient && isExpanded
+              ? getClientMetrics(linkedProjects, financeByProjectId)
+              : null
 
             return (
               <TouchableOpacity key={lead.id} onPress={() => toggleExpand(lead)} onLongPress={() => removeLead(lead)} activeOpacity={0.85}>
@@ -203,7 +205,7 @@ export default function LeadsScreen() {
                       {lead.website && <Text style={styles.leadInfo}>🌐 {lead.website}</Text>}
                       {lead.estimatedValue != null && <Text style={[styles.leadInfo, { color: COLORS.success }]}>💰 {formatCurrency(lead.estimatedValue)}</Text>}
                       {lead.nextAction && <Text style={[styles.leadInfo, { color: COLORS.warning }]}>⚡ {lead.nextAction}</Text>}
-                      {lead.followUpAt && <Text style={styles.leadInfo}>📅 Próximo contato: {new Date(lead.followUpAt).toLocaleDateString('pt-BR')}</Text>}
+                      {lead.followUpAt && <Text style={styles.leadInfo}>📅 Próximo contato: {formatDateShort(lead.followUpAt)}</Text>}
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       <Badge status={lead.status} />
@@ -213,7 +215,7 @@ export default function LeadsScreen() {
                     </View>
                   </View>
 
-                  {/* Ações rápidas de status */}
+                  {/* Ações rápidas de funil */}
                   {lead.status !== 'CLOSED' && lead.status !== 'LOST' && lead.status !== 'ACTIVE_CLIENT' && (
                     <View style={styles.quickActions}>
                       {lead.status === 'NEW' && <TouchableOpacity style={styles.quickBtn} onPress={() => quickStatus(lead, 'CONTACTED')}><Text style={styles.quickText}>📞 Contatei</Text></TouchableOpacity>}
@@ -229,7 +231,6 @@ export default function LeadsScreen() {
                     </View>
                   )}
 
-                  {/* Promoção a cliente ativo (fechado, mas ainda não marcado como cliente) */}
                   {lead.status === 'CLOSED' && (
                     <View style={styles.quickActions}>
                       <TouchableOpacity style={[styles.quickBtn, { backgroundColor: COLORS.success + '22' }]} onPress={() => promoteToClient(lead)}>
@@ -238,12 +239,61 @@ export default function LeadsScreen() {
                     </View>
                   )}
 
-                  {/* Projetos vinculados — visível ao expandir o card */}
-                  {isExpanded && (
+                  {/* Seção expandida — Cliente Ativo (Fase 4.2D) */}
+                  {isExpanded && isActiveClient && clientMetrics && (
+                    <View style={styles.clientSection}>
+                      <Text style={styles.clientSectionTitle}>📊 Visão do Cliente</Text>
+
+                      <View style={styles.clientMetricsRow}>
+                        <View style={styles.clientMetricItem}>
+                          <Text style={[styles.clientMetricValue, { color: COLORS.primary }]}>{clientMetrics.activeProjects}</Text>
+                          <Text style={styles.clientMetricLabel}>Projetos ativos</Text>
+                        </View>
+                        <View style={styles.clientMetricItem}>
+                          <Text style={[styles.clientMetricValue, { color: COLORS.success }]}>{clientMetrics.completedProjects}</Text>
+                          <Text style={styles.clientMetricLabel}>Concluídos</Text>
+                        </View>
+                        <View style={styles.clientMetricItem}>
+                          <Text style={[styles.clientMetricValue, { color: COLORS.success }]}>{formatCurrency(clientMetrics.totalReceived)}</Text>
+                          <Text style={styles.clientMetricLabel}>Receita gerada</Text>
+                        </View>
+                        <View style={styles.clientMetricItem}>
+                          <Text style={[styles.clientMetricValue, { color: COLORS.warning }]}>{formatCurrency(clientMetrics.totalPending)}</Text>
+                          <Text style={styles.clientMetricLabel}>Em aberto</Text>
+                        </View>
+                      </View>
+
+                      {lead.followUpAt && (
+                        <Text style={styles.clientInfoLine}>📅 Próximo contato: {formatDateShort(lead.followUpAt)}</Text>
+                      )}
+                      {lead.lastContactAt && (
+                        <Text style={styles.clientInfoLine}>🕐 Última interação: {formatDateShort(lead.lastContactAt)}</Text>
+                      )}
+
+                      {linkedProjects.length > 0 && (
+                        <>
+                          <Text style={[styles.clientSectionTitle, { marginTop: SPACING.sm }]}>🏗️ Projetos</Text>
+                          {linkedProjects.map((p) => (
+                            <View key={p.id} style={styles.linkedProjectRow}>
+                              <Text style={styles.linkedProjectName}>{p.name}</Text>
+                              <Badge status={p.clientStatus || 'LEAD'} />
+                            </View>
+                          ))}
+                        </>
+                      )}
+
+                      <TouchableOpacity onPress={() => router.push('/projetos')}>
+                        <Text style={styles.linkedManageText}>Gerenciar em Projetos →</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Seção expandida — Lead normal (projetos vinculados) */}
+                  {isExpanded && !isActiveClient && (
                     <View style={styles.linkedSection}>
-                      <Text style={styles.linkedTitle}>🏗️ Projetos vinculados</Text>
+                      <Text style={styles.linkedSectionTitle}>🏗️ Projetos vinculados</Text>
                       {linkedProjects.length === 0
-                        ? <Text style={styles.linkedEmpty}>Nenhum projeto vinculado a este cliente ainda.</Text>
+                        ? <Text style={styles.linkedEmpty}>Nenhum projeto vinculado.</Text>
                         : linkedProjects.map((p) => (
                           <View key={p.id} style={styles.linkedProjectRow}>
                             <Text style={styles.linkedProjectName}>{p.name}</Text>
@@ -299,9 +349,16 @@ const styles = StyleSheet.create({
   quickActions: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: COLORS.border },
   quickBtn: { alignSelf: 'flex-start', paddingHorizontal: SPACING.md, paddingVertical: 6, borderRadius: RADIUS.full, backgroundColor: COLORS.primary + '22', borderWidth: 1, borderColor: COLORS.primary + '44' },
   quickText: { color: COLORS.primary, fontSize: FONT_SIZE.xs, fontWeight: '700' },
+  clientSection: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: COLORS.border },
+  clientSectionTitle: { color: COLORS.textSecondary, fontSize: FONT_SIZE.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: SPACING.sm },
+  clientMetricsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACING.sm },
+  clientMetricItem: { alignItems: 'center', flex: 1 },
+  clientMetricValue: { fontSize: FONT_SIZE.md, fontWeight: '800' },
+  clientMetricLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, textAlign: 'center', marginTop: 2 },
+  clientInfoLine: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginBottom: 4 },
   linkedSection: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: COLORS.border },
-  linkedTitle: { color: COLORS.textSecondary, fontSize: FONT_SIZE.sm, fontWeight: '700', marginBottom: SPACING.xs },
-  linkedEmpty: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginBottom: SPACING.xs },
+  linkedSectionTitle: { color: COLORS.textSecondary, fontSize: FONT_SIZE.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: SPACING.sm },
+  linkedEmpty: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm },
   linkedProjectRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   linkedProjectName: { color: COLORS.text, fontSize: FONT_SIZE.sm },
   linkedManageText: { color: COLORS.primary, fontSize: FONT_SIZE.xs, fontWeight: '700', marginTop: SPACING.xs },
