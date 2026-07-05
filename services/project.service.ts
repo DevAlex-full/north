@@ -3,10 +3,13 @@ import type {
   Project,
   ProjectTask,
   ProjectFinance,
+  ProjectSubTask,
   CreateProjectInput,
   UpdateProjectInput,
   CreateProjectTaskInput,
   UpdateProjectTaskInput,
+  CreateSubTaskInput,
+  UpdateSubTaskInput,
 } from '../types/project.types'
 
 export const projectService = {
@@ -39,6 +42,35 @@ export const projectService = {
   },
   async deleteTask(projectId: string, taskId: string): Promise<void> {
     await api.delete(`/projects/${projectId}/tasks/${taskId}`)
+  },
+
+  // --- Fase 4.3B: Subtarefas ---
+
+  async createSubTask(
+    projectId: string,
+    taskId: string,
+    data: CreateSubTaskInput
+  ): Promise<ProjectSubTask> {
+    const r = await api.post<ProjectSubTask>(
+      `/projects/${projectId}/tasks/${taskId}/subtasks`,
+      data
+    )
+    return r.data
+  },
+  async updateSubTask(
+    projectId: string,
+    taskId: string,
+    subId: string,
+    data: UpdateSubTaskInput
+  ): Promise<ProjectSubTask> {
+    const r = await api.put<ProjectSubTask>(
+      `/projects/${projectId}/tasks/${taskId}/subtasks/${subId}`,
+      data
+    )
+    return r.data
+  },
+  async deleteSubTask(projectId: string, taskId: string, subId: string): Promise<void> {
+    await api.delete(`/projects/${projectId}/tasks/${taskId}/subtasks/${subId}`)
   },
 
   /** Resumo financeiro do projeto (Fase 4: Financeiro do Projeto). */

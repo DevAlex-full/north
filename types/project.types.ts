@@ -22,6 +22,25 @@ export type ProjectClientStatus =
 
 export type ProjectTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE'
 
+/** Status de uma subtarefa (Fase 4.3: ProjectSubTask). */
+export type ProjectSubTaskStatus = 'PENDING' | 'DONE'
+
+/**
+ * Entidade ProjectSubTask retornada pela API, sempre aninhada dentro de uma
+ * ProjectTask (GET /projects e GET /projects/:id já incluem `subtasks`
+ * ordenadas por `order` — ver taskInclude em project.repository.ts).
+ */
+export interface ProjectSubTask {
+  id: string
+  taskId: string
+  title: string
+  status: ProjectSubTaskStatus
+  order: number
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ProjectTask {
   id: string
   projectId: string
@@ -33,6 +52,12 @@ export interface ProjectTask {
   completedAt: string | null
   createdAt: string
   updatedAt: string
+  /**
+   * Sempre presente nas respostas do backend (Fase 4.3), ordenada por
+   * `order`. Tipada como obrigatória porque toda ProjectTask retornada pela
+   * API já vem com este relacionamento incluído.
+   */
+  subtasks: ProjectSubTask[]
 }
 
 /** Entidade Project retornada pela API, já com os campos da Fase 4. */
@@ -118,3 +143,16 @@ export interface CreateProjectTaskInput {
 }
 
 export type UpdateProjectTaskInput = Partial<CreateProjectTaskInput>
+
+// --- Fase 4.3B: Subtarefas ---
+
+export interface CreateSubTaskInput {
+  title: string
+  order?: number
+}
+
+export interface UpdateSubTaskInput {
+  title?: string
+  status?: ProjectSubTaskStatus
+  order?: number
+}

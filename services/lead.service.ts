@@ -21,4 +21,14 @@ export const leadService = {
   async delete(id: string): Promise<void> {
     await api.delete(`/leads/${id}`)
   },
+
+  /**
+   * Fase 4.3B — Follow-ups: leads cujo `followUpAt` está vencido ou vence
+   * dentro da janela de `days` dias (padrão do backend: 7). Consome
+   * GET /leads/follow-ups (src/routes/lead.routes.ts).
+   */
+  async getFollowUps(days?: number): Promise<Lead[]> {
+    const r = await api.get<Lead[]>('/leads/follow-ups', { params: { days } })
+    return r.data
+  },
 }

@@ -4,10 +4,13 @@ import type {
   Project,
   ProjectTask,
   ProjectFinance,
+  ProjectSubTask,
   CreateProjectInput,
   UpdateProjectInput,
   CreateProjectTaskInput,
   UpdateProjectTaskInput,
+  CreateSubTaskInput,
+  UpdateSubTaskInput,
 } from '../types/project.types'
 
 interface ProjectStore {
@@ -23,6 +26,20 @@ interface ProjectStore {
   createTask: (projectId: string, data: CreateProjectTaskInput) => Promise<ProjectTask>
   updateTask: (projectId: string, taskId: string, data: UpdateProjectTaskInput) => Promise<ProjectTask>
   deleteTask: (projectId: string, taskId: string) => Promise<void>
+
+  // --- Fase 4.3B: Subtarefas ---
+  createSubTask: (
+    projectId: string,
+    taskId: string,
+    data: CreateSubTaskInput
+  ) => Promise<ProjectSubTask>
+  updateSubTask: (
+    projectId: string,
+    taskId: string,
+    subId: string,
+    data: UpdateSubTaskInput
+  ) => Promise<ProjectSubTask>
+  deleteSubTask: (projectId: string, taskId: string, subId: string) => Promise<void>
 
   getFinance: (projectId: string) => Promise<ProjectFinance>
 }
@@ -87,6 +104,62 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       projects: get().projects.map((p) =>
         p.id === projectId
           ? { ...p, projectTasks: p.projectTasks.filter((t) => t.id !== taskId) }
+          : p
+      ),
+    })
+  },
+
+  // --- Fase 4.3B: Subtarefas ---
+
+  createSubTask: async (projectId, taskId, data) => {
+    const subtask = await projectService.createSubTask(projectId, taskId, data)
+    set({
+      projects: get().projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              projectTasks: p.projectTasks.map((t) =>
+                t.id === taskId ? { ...t, subtasks: [...t.subtasks, subtask] } : t
+              ),
+            }
+          : p
+      ),
+    })
+    return subtask
+  },
+
+  updateSubTask: async (projectId, taskId, subId, data) => {
+    const subtask = await projectService.updateSubTask(projectId, taskId, subId, data)
+    set({
+      projects: get().projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              projectTasks: p.projectTasks.map((t) =>
+                t.id === taskId
+                  ? { ...t, subtasks: t.subtasks.map((s) => (s.id === subId ? subtask : s)) }
+                  : t
+              ),
+            }
+          : p
+      ),
+    })
+    return subtask
+  },
+
+  deleteSubTask: async (projectId, taskId, subId) => {
+    await projectService.deleteSubTask(projectId, taskId, subId)
+    set({
+      projects: get().projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              projectTasks: p.projectTasks.map((t) =>
+                t.id === taskId
+                  ? { ...t, subtasks: t.subtasks.filter((s) => s.id !== subId) }
+                  : t
+              ),
+            }
           : p
       ),
     })
