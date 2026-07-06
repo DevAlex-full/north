@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, A
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useLeadStore } from '../../stores/lead.store'
 import { useProjectStore } from '../../stores/project.store'
+import { useActivityStore } from '../../stores/activity.store'
 import { projectService } from '../../services/project.service'
 import { useProjectsFinance } from '../../hooks/useProjectsFinance'
 import { Card } from '../../components/ui/Card'
@@ -12,6 +13,7 @@ import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { ActivityTimeline } from '../../components/ui/ActivityTimeline'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
 import { formatCurrency } from '../../utils/format'
 import { formatDateShort } from '../../utils/date'
@@ -46,6 +48,7 @@ export default function LeadsScreen() {
   const router = useRouter()
   const { leads, fetchLeads, createLead, updateLead, deleteLead } = useLeadStore()
   const { projects, fetchProjects } = useProjectStore()
+  const { activities, isLoading: activitiesLoading, fetchActivities } = useActivityStore()
 
   const [filterStatus, setFilterStatus] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -153,6 +156,10 @@ export default function LeadsScreen() {
       } catch {
         setClientProjectsMap((prev) => ({ ...prev, [lead.id]: [] }))
       }
+    }
+    // Fase 4.3C — Timeline de atividades do lead (ActivityStore)
+    if (next) {
+      fetchActivities({ leadId: next }).catch(() => {})
     }
   }
 
@@ -264,11 +271,19 @@ export default function LeadsScreen() {
                       </View>
 
                       {lead.followUpAt && (
-                        <Text style={styles.clientInfoLine}>📅 Próximo contato: {formatDateShort(lead.followUpAt)}</Text>
+                        <Text style={styles.clientInfoLine}>📅 Próximo follow-up: {formatDateShort(lead.followUpAt)}</Text>
                       )}
                       {lead.lastContactAt && (
-                        <Text style={styles.clientInfoLine}>🕐 Última interação: {formatDateShort(lead.lastContactAt)}</Text>
+                        <Text style={styles.clientInfoLine}>🕐 Último contato: {formatDateShort(lead.lastContactAt)}</Text>
                       )}
+
+                      {/* Fase 4.3C — Timeline de atividades (ActivityLog) */}
+                      <Text style={[styles.clientSectionTitle, { marginTop: SPACING.sm }]}>🕐 Atividades</Text>
+                      <ActivityTimeline
+                        activities={activities}
+                        isLoading={activitiesLoading}
+                        emptyLabel="Nenhuma atividade registrada para este lead ainda."
+                      />
 
                       {linkedProjects.length > 0 && (
                         <>
@@ -288,10 +303,25 @@ export default function LeadsScreen() {
                     </View>
                   )}
 
-                  {/* Seção expandida — Lead normal (projetos vinculados) */}
+                  {/* Seção expandida — Lead normal (histórico, follow-up e projetos vinculados) */}
                   {isExpanded && !isActiveClient && (
                     <View style={styles.linkedSection}>
-                      <Text style={styles.linkedSectionTitle}>🏗️ Projetos vinculados</Text>
+                      <Text style={styles.linkedSectionTitle}>🕐 Histórico</Text>
+                      {lead.followUpAt && (
+                        <Text style={styles.clientInfoLine}>📅 Próximo follow-up: {formatDateShort(lead.followUpAt)}</Text>
+                      )}
+                      {lead.lastContactAt && (
+                        <Text style={styles.clientInfoLine}>🕐 Último contato: {formatDateShort(lead.lastContactAt)}</Text>
+                      )}
+
+                      {/* Fase 4.3C — Timeline de atividades (ActivityLog) */}
+                      <ActivityTimeline
+                        activities={activities}
+                        isLoading={activitiesLoading}
+                        emptyLabel="Nenhuma atividade registrada para este lead ainda."
+                      />
+
+                      <Text style={[styles.linkedSectionTitle, { marginTop: SPACING.sm }]}>🏗️ Projetos vinculados</Text>
                       {linkedProjects.length === 0
                         ? <Text style={styles.linkedEmpty}>Nenhum projeto vinculado.</Text>
                         : linkedProjects.map((p) => (

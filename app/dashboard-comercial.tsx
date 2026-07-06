@@ -3,27 +3,42 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } 
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useLeadStore } from '../stores/lead.store'
 import { useProjectStore } from '../stores/project.store'
+import { useActivityStore } from '../stores/activity.store'
 import { useProjectsFinance } from '../hooks/useProjectsFinance'
+import { useFollowUps } from '../hooks/useFollowUps'
 import { Card } from '../components/ui/Card'
+import { ActivityTimeline } from '../components/ui/ActivityTimeline'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../constants/theme'
 import { formatCurrency } from '../utils/format'
 import { formatDateShort } from '../utils/date'
 import { getCommercialMetrics } from '../utils/commercial'
 
+/** Janela padrão (dias) para follow-ups pendentes — mesmo padrão do backend. */
+const FOLLOW_UP_WINDOW_DAYS = 7
+/** Quantidade de atividades recentes exibidas no resumo. */
+const RECENT_ACTIVITIES_LIMIT = 8
+
 export default function DashboardComercialScreen() {
   const router = useRouter()
   const { leads, fetchLeads } = useLeadStore()
   const { projects, fetchProjects } = useProjectStore()
-  const [refreshing, setRefreshing] = useState(false)
+  const { activities, isLoading: activitiesLoading, fetchActivities } = useActivityStore()
 
   const clientProjects = projects.filter((p) => p.kind === 'CLIENT')
   const projectIds = clientProjects.map((p) => p.id)
   const { financeByProjectId, reload: reloadFinance } = useProjectsFinance(projectIds)
 
+  // Fase 4.3C — Resumo de Follow-ups, consumindo exclusivamente useFollowUps()
+  const { followUps, isLoading: followUpsLoading, reload: reloadFollowUps } = useFollowUps(FOLLOW_UP_WINDOW_DAYS)
+  const overdueFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() < Date.now())
+  const upcomingFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() >= Date.now())
+
   const load = async () => {
-    await Promise.all([fetchLeads(), fetchProjects('CLIENT')])
+    await Promise.all([fetchLeads(), fetchProjects('CLIENT'), fetchActivities()])
     setRefreshing(false)
   }
+
+  const [refreshing, setRefreshing] = useState(false)
 
   useFocusEffect(useCallback(() => { load() }, []))
 
@@ -31,6 +46,8 @@ export default function DashboardComercialScreen() {
 
   const closingRateLabel = `${metrics.closingRate.toFixed(0)}%`
   const conversionRateLabel = `${metrics.conversionRate.toFixed(0)}%`
+
+  const onRefresh = () => { setRefreshing(true); load(); reloadFinance(); reloadFollowUps() }
 
   return (
     <View style={styles.container}>
@@ -44,7 +61,7 @@ export default function DashboardComercialScreen() {
 
       <ScrollView
         contentContainerStyle={{ padding: SPACING.md, paddingBottom: SPACING.xxl }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); reloadFinance() }} tintColor={COLORS.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
       >
         {/* Visão geral */}
         <Text style={styles.sectionTitle}>🎯 Visão Geral</Text>
@@ -64,6 +81,48 @@ export default function DashboardComercialScreen() {
           <FinancialRow label="Receita prevista" value={metrics.expectedRevenue} color={COLORS.primary} />
           <FinancialRow label="Receita recebida" value={metrics.receivedRevenue} color={COLORS.success} />
           <FinancialRow label="Pendente" value={metrics.pendingRevenue} color={COLORS.warning} last />
+        </Card>
+
+        {/* Fase 4.3C — Resumo de Follow-ups (useFollowUps) */}
+        <Text style={styles.sectionTitle}>📅 Resumo de Follow-ups</Text>
+        <Card>
+          <View style={styles.followUpSummaryRow}>
+            <View style={styles.followUpSummaryItem}>
+              <Text style={[styles.followUpSummaryValue, { color: COLORS.danger }]}>{followUpsLoading ? '—' : overdueFollowUps.length}</Text>
+              <Text style={styles.followUpSummaryLabel}>Vencidos</Text>
+            </View>
+            <View style={styles.followUpSummaryItem}>
+              <Text style={[styles.followUpSummaryValue, { color: COLORS.warning }]}>{followUpsLoading ? '—' : upcomingFollowUps.length}</Text>
+              <Text style={styles.followUpSummaryLabel}>Pendentes (7 dias)</Text>
+            </View>
+          </View>
+
+          {!followUpsLoading && overdueFollowUps.length === 0 && upcomingFollowUps.length === 0 && (
+            <Text style={styles.emptyText}>Nenhum follow-up pendente ou vencido. 🎉</Text>
+          )}
+
+          {overdueFollowUps.slice(0, 5).map((lead) => (
+            <View key={lead.id} style={styles.contactRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contactName}>🔴 {lead.name}</Text>
+                {lead.company && <Text style={styles.contactSub}>🏢 {lead.company}</Text>}
+              </View>
+              <Text style={[styles.contactDate, { color: COLORS.danger }]}>
+                {lead.followUpAt ? formatDateShort(lead.followUpAt) : '-'}
+              </Text>
+            </View>
+          ))}
+          {upcomingFollowUps.slice(0, 5).map((lead) => (
+            <View key={lead.id} style={styles.contactRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contactName}>🟡 {lead.name}</Text>
+                {lead.company && <Text style={styles.contactSub}>🏢 {lead.company}</Text>}
+              </View>
+              <Text style={[styles.contactDate, { color: COLORS.warning }]}>
+                {lead.followUpAt ? formatDateShort(lead.followUpAt) : '-'}
+              </Text>
+            </View>
+          ))}
         </Card>
 
         {/* Próximos contatos */}
@@ -103,6 +162,17 @@ export default function DashboardComercialScreen() {
             ))
           }
         </Card>
+
+        {/* Fase 4.3C — Últimas atividades (ActivityStore) */}
+        <Text style={styles.sectionTitle}>🕐 Últimas Atividades</Text>
+        <Card>
+          <ActivityTimeline
+            activities={activities}
+            isLoading={activitiesLoading}
+            limit={RECENT_ACTIVITIES_LIMIT}
+            emptyLabel="Nenhuma atividade registrada ainda."
+          />
+        </Card>
       </ScrollView>
     </View>
   )
@@ -138,6 +208,10 @@ const styles = StyleSheet.create({
   finRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: SPACING.sm },
   finLabel: { color: COLORS.textSecondary, fontSize: FONT_SIZE.md },
   finValue: { fontSize: FONT_SIZE.md, fontWeight: '800' },
+  followUpSummaryRow: { flexDirection: 'row', justifyContent: 'space-around', paddingBottom: SPACING.sm, marginBottom: SPACING.sm, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  followUpSummaryItem: { alignItems: 'center' },
+  followUpSummaryValue: { fontSize: FONT_SIZE.xxl, fontWeight: '900' },
+  followUpSummaryLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 },
   contactRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: SPACING.sm, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   contactName: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '600' },
   contactSub: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs },

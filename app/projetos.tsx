@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, A
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useProjectStore } from '../stores/project.store'
 import { useLeadStore } from '../stores/lead.store'
+import { useActivityStore } from '../stores/activity.store'
 import { useProjectsFinance } from '../hooks/useProjectsFinance'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -13,11 +14,12 @@ import { Badge } from '../components/ui/Badge'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { Checkbox } from '../components/ui/Checkbox'
 import { EmptyState } from '../components/ui/EmptyState'
+import { ActivityTimeline } from '../components/ui/ActivityTimeline'
 import { COLORS, SPACING, FONT_SIZE } from '../constants/theme'
 import { formatCurrency, getProjectKindLabel } from '../utils/format'
 import { formatDateShort } from '../utils/date'
 import { buildProjectTimeline } from '../utils/commercial'
-import type { Project, ProjectTask, ProjectKind, ProjectClientStatus } from '../types/project.types'
+import type { Project, ProjectTask, ProjectSubTask, ProjectKind, ProjectClientStatus } from '../types/project.types'
 
 const STATUS_OPTIONS = [
   { label: '💡 Ideia', value: 'IDEA' },
@@ -62,10 +64,23 @@ const CLIENT_STATUS_VALUES: ProjectClientStatus[] = [
 function isProjectKind(v: string): v is ProjectKind { return v === 'PERSONAL' || v === 'CLIENT' }
 function isProjectClientStatus(v: string): v is ProjectClientStatus { return (CLIENT_STATUS_VALUES as string[]).includes(v) }
 
+/**
+ * Fase 4.3B/4.3C: quando a tarefa tem subtarefas, sua conclusão é derivada
+ * delas (todas DONE ⇒ tarefa considerada concluída para fins de progresso).
+ * Sem subtarefas, mantém exatamente o comportamento atual — `task.status`
+ * continua sendo a única fonte de verdade, editável no modal de tarefa.
+ */
+function isTaskDone(task: ProjectTask): boolean {
+  return task.subtasks.length > 0
+    ? task.subtasks.every((s) => s.status === 'DONE')
+    : task.status === 'DONE'
+}
+
 export default function ProjetosScreen() {
   const router = useRouter()
   const { projects, fetchProjects, createProject, updateProject, deleteProject: removeProject, createTask, updateTask, deleteTask } = useProjectStore()
   const { leads, fetchLeads } = useLeadStore()
+  const { activities, isLoading: activitiesLoading, fetchActivities } = useActivityStore()
 
   const clientProjects = projects.filter((p) => p.kind === 'CLIENT')
   const { financeByProjectId, reload: reloadFinance } = useProjectsFinance(clientProjects.map((p) => p.id))
@@ -127,7 +142,12 @@ export default function ProjetosScreen() {
     setShowModal(true)
   }
 
-  const openDetail = (p: Project) => { setDetailProject(p); setShowDetailModal(true) }
+  const openDetail = (p: Project) => {
+    setDetailProject(p)
+    setShowDetailModal(true)
+    // Fase 4.3C — Timeline de atividades do projeto (ActivityStore)
+    fetchActivities({ projectId: p.id }).catch(() => {})
+  }
 
   const save = async () => {
     if (!name.trim()) { Alert.alert('Atenção', 'Nome obrigatório'); return }
@@ -197,7 +217,7 @@ export default function ProjetosScreen() {
 
   const getProgress = (tasks: ProjectTask[]) => {
     if (!tasks?.length) return 0
-    return Math.round((tasks.filter(t => t.status === 'DONE').length / tasks.length) * 100)
+    return Math.round((tasks.filter(isTaskDone).length / tasks.length) * 100)
   }
 
   return (
@@ -249,7 +269,7 @@ export default function ProjetosScreen() {
                       <View style={styles.financeItem}><Text style={styles.financeLabel}>Lucro</Text><Text style={[styles.financeValue, { color: finance.profit >= 0 ? COLORS.success : COLORS.danger }]}>{formatCurrency(finance.profit)}</Text></View>
                     </View>
                   ) : (
-                    <ProgressBar value={prog} total={100} label={`${p.projectTasks?.filter(t => t.status === 'DONE').length || 0}/${p.projectTasks?.length || 0} tarefas`} />
+                    <ProgressBar value={prog} total={100} label={`${p.projectTasks?.filter(isTaskDone).length || 0}/${p.projectTasks?.length || 0} tarefas`} />
                   )}
                 </TouchableOpacity>
 
@@ -257,11 +277,7 @@ export default function ProjetosScreen() {
                 {!isClient && isExpanded && (
                   <View style={{ marginTop: SPACING.sm, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: SPACING.sm }}>
                     {(p.projectTasks || []).map(task => (
-                      <View key={task.id} style={styles.taskRow}>
-                        <View style={{ flex: 1 }}><Checkbox label={task.title} checked={task.status === 'DONE'} onToggle={() => toggleTask(p, task)} /></View>
-                        <TouchableOpacity onPress={() => openTaskEdit(p, task)} style={styles.taskActionBtn}><Text style={{ fontSize: FONT_SIZE.md }}>✏️</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => deleteTaskAlert(p, task)} style={styles.taskActionBtn}><Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.md }}>🗑</Text></TouchableOpacity>
-                      </View>
+                      <TaskItem key={task.id} project={p} task={task} onEditTask={openTaskEdit} onDeleteTask={deleteTaskAlert} onToggleTask={toggleTask} />
                     ))}
                     <TouchableOpacity style={styles.addTaskBtn} onPress={() => { setSelectedProject(p); setTaskTitle(''); setShowTaskModal(true) }}>
                       <Text style={{ color: COLORS.primary, fontSize: FONT_SIZE.sm, fontWeight: '700' }}>+ Adicionar tarefa</Text>
@@ -343,18 +359,21 @@ export default function ProjetosScreen() {
             <View style={styles.detailSection}>
               <Text style={styles.detailSectionTitle}>✅ Tarefas</Text>
               {(detailProject.projectTasks || []).map(task => (
-                <View key={task.id} style={styles.taskRow}>
-                  <View style={{ flex: 1 }}><Checkbox label={task.title} checked={task.status === 'DONE'} onToggle={() => toggleTask(detailProject, task)} /></View>
-                  <TouchableOpacity onPress={() => { setShowDetailModal(false); openTaskEdit(detailProject, task) }} style={styles.taskActionBtn}><Text style={{ fontSize: FONT_SIZE.md }}>✏️</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => deleteTaskAlert(detailProject, task)} style={styles.taskActionBtn}><Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.md }}>🗑</Text></TouchableOpacity>
-                </View>
+                <TaskItem
+                  key={task.id}
+                  project={detailProject}
+                  task={task}
+                  onEditTask={(proj, t) => { setShowDetailModal(false); openTaskEdit(proj, t) }}
+                  onDeleteTask={deleteTaskAlert}
+                  onToggleTask={toggleTask}
+                />
               ))}
               <TouchableOpacity style={styles.addTaskBtn} onPress={() => { setShowDetailModal(false); setSelectedProject(detailProject); setTaskTitle(''); setShowTaskModal(true) }}>
                 <Text style={{ color: COLORS.primary, fontSize: FONT_SIZE.sm, fontWeight: '700' }}>+ Adicionar tarefa</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Linha do Tempo */}
+            {/* Linha do Tempo (derivada de datas do próprio projeto — Fase 4.2C) */}
             <View style={styles.detailSection}>
               <Text style={styles.detailSectionTitle}>🕐 Histórico</Text>
               {buildProjectTimeline(detailProject).map(event => (
@@ -366,6 +385,16 @@ export default function ProjetosScreen() {
                   </View>
                 </View>
               ))}
+            </View>
+
+            {/* Fase 4.3C — Timeline de atividades (ActivityLog) */}
+            <View style={styles.detailSection}>
+              <Text style={styles.detailSectionTitle}>📍 Atividades</Text>
+              <ActivityTimeline
+                activities={activities}
+                isLoading={activitiesLoading}
+                emptyLabel="Nenhuma atividade registrada para este projeto ainda."
+              />
             </View>
           </ScrollView>
 
@@ -390,6 +419,182 @@ export default function ProjetosScreen() {
   )
 }
 
+/**
+ * Fase 4.3C — Item de tarefa com suporte completo a subtarefas: expandir,
+ * recolher, criar, editar, excluir, concluir e reabrir. Usado tanto no card
+ * inline (projetos pessoais) quanto no modal de detalhe (projetos de
+ * cliente), evitando duplicar a mesma lógica em dois lugares.
+ *
+ * Sem subtarefas: mantém exatamente o comportamento anterior (Checkbox
+ * ligado a task.status). Com subtarefas: a checkbox de nível de tarefa dá
+ * lugar a um título expansível + barra de progresso computada a partir das
+ * subtarefas, conforme especificado.
+ */
+function TaskItem({
+  project,
+  task,
+  onEditTask,
+  onDeleteTask,
+  onToggleTask,
+}: {
+  project: Project
+  task: ProjectTask
+  onEditTask: (project: Project, task: ProjectTask) => void
+  onDeleteTask: (project: Project, task: ProjectTask) => void
+  onToggleTask: (project: Project, task: ProjectTask) => void
+}) {
+  const { createSubTask } = useProjectStore()
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [newSubtitle, setNewSubtitle] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  const subtasks = task.subtasks || []
+  const hasSubtasks = subtasks.length > 0
+  const doneCount = subtasks.filter((s) => s.status === 'DONE').length
+
+  const addSubtask = async () => {
+    const trimmed = newSubtitle.trim()
+    if (!trimmed) return
+    setAdding(true)
+    try {
+      await createSubTask(project.id, task.id, { title: trimmed, order: subtasks.length })
+      setNewSubtitle('')
+    } catch {
+      Alert.alert('Erro', 'Não foi possível criar a subtarefa')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <View style={styles.taskItemWrapper}>
+      <View style={styles.taskRow}>
+        <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} style={styles.expandBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
+        </TouchableOpacity>
+
+        {hasSubtasks ? (
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7}>
+            <Text style={[styles.taskTitleText, doneCount === subtasks.length && styles.taskTitleDone]}>
+              {task.title}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ flex: 1 }}>
+            <Checkbox label={task.title} checked={task.status === 'DONE'} onToggle={() => onToggleTask(project, task)} />
+          </View>
+        )}
+
+        <TouchableOpacity onPress={() => onEditTask(project, task)} style={styles.taskActionBtn}>
+          <Text style={{ fontSize: FONT_SIZE.md }}>✏️</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => onDeleteTask(project, task)} style={styles.taskActionBtn}>
+          <Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.md }}>🗑</Text>
+        </TouchableOpacity>
+      </View>
+
+      {hasSubtasks && (
+        <View style={styles.subtaskProgressWrap}>
+          <ProgressBar value={doneCount} total={subtasks.length} label={`${doneCount}/${subtasks.length} subtarefas`} />
+        </View>
+      )}
+
+      {isExpanded && (
+        <View style={styles.subtasksContainer}>
+          {subtasks.map((sub) => (
+            <SubtaskRow key={sub.id} projectId={project.id} taskId={task.id} subtask={sub} />
+          ))}
+          <View style={styles.addSubtaskRow}>
+            <Input
+              value={newSubtitle}
+              onChangeText={setNewSubtitle}
+              placeholder="Nova subtarefa..."
+              onSubmitEditing={addSubtask}
+              returnKeyType="done"
+              style={{ marginBottom: 0, flex: 1 }}
+            />
+            <TouchableOpacity onPress={addSubtask} disabled={adding} style={styles.addSubtaskBtn}>
+              <Text style={styles.addSubtaskBtnText}>{adding ? '...' : '+'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  )
+}
+
+/** Fase 4.3C — Linha de subtarefa: concluir/reabrir (checkbox), editar (inline) e excluir. */
+function SubtaskRow({ projectId, taskId, subtask }: { projectId: string; taskId: string; subtask: ProjectSubTask }) {
+  const { updateSubTask, deleteSubTask } = useProjectStore()
+  const [isEditing, setIsEditing] = useState(false)
+  const [title, setTitle] = useState(subtask.title)
+
+  const toggle = async () => {
+    try {
+      await updateSubTask(projectId, taskId, subtask.id, { status: subtask.status === 'DONE' ? 'PENDING' : 'DONE' })
+    } catch {
+      Alert.alert('Erro', 'Não foi possível atualizar a subtarefa')
+    }
+  }
+
+  const saveEdit = async () => {
+    const trimmed = title.trim()
+    if (!trimmed) { setTitle(subtask.title); setIsEditing(false); return }
+    if (trimmed === subtask.title) { setIsEditing(false); return }
+    try {
+      await updateSubTask(projectId, taskId, subtask.id, { title: trimmed })
+    } catch {
+      Alert.alert('Erro', 'Não foi possível salvar a subtarefa')
+      setTitle(subtask.title)
+    }
+    setIsEditing(false)
+  }
+
+  const remove = () => {
+    Alert.alert('Excluir subtarefa', `Excluir "${subtask.title}"?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: async () => {
+          try { await deleteSubTask(projectId, taskId, subtask.id) }
+          catch { Alert.alert('Erro', 'Não foi possível excluir a subtarefa') }
+        },
+      },
+    ])
+  }
+
+  if (isEditing) {
+    return (
+      <View style={styles.subtaskRow}>
+        <Input
+          value={title}
+          onChangeText={setTitle}
+          onSubmitEditing={saveEdit}
+          onBlur={saveEdit}
+          autoFocus
+          returnKeyType="done"
+          style={{ marginBottom: 0, flex: 1 }}
+        />
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.subtaskRow}>
+      <View style={{ flex: 1 }}>
+        <Checkbox label={subtask.title} checked={subtask.status === 'DONE'} onToggle={toggle} />
+      </View>
+      <TouchableOpacity onPress={() => { setTitle(subtask.title); setIsEditing(true) }} style={styles.taskActionBtn}>
+        <Text style={{ fontSize: FONT_SIZE.sm }}>✏️</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={remove} style={styles.taskActionBtn}>
+        <Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.sm }}>🗑</Text>
+      </TouchableOpacity>
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.lg, paddingTop: SPACING.xl + 8 },
@@ -402,8 +607,19 @@ const styles = StyleSheet.create({
   financeItem: { alignItems: 'center', flex: 1 },
   financeLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginBottom: 2 },
   financeValue: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '800' },
+  taskItemWrapper: { marginBottom: 2 },
   taskRow: { flexDirection: 'row', alignItems: 'center' },
   taskActionBtn: { paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },
+  expandBtn: { width: 28, alignItems: 'center', justifyContent: 'center', paddingVertical: SPACING.sm },
+  expandIcon: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs },
+  taskTitleText: { color: COLORS.text, fontSize: FONT_SIZE.md, paddingVertical: SPACING.sm },
+  taskTitleDone: { color: COLORS.textMuted, textDecorationLine: 'line-through' },
+  subtaskProgressWrap: { paddingLeft: 28, paddingRight: SPACING.sm, marginBottom: SPACING.xs },
+  subtasksContainer: { paddingLeft: 28, marginBottom: SPACING.sm },
+  subtaskRow: { flexDirection: 'row', alignItems: 'center' },
+  addSubtaskRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: 2 },
+  addSubtaskBtn: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: 8, borderWidth: 1, borderColor: COLORS.primary + '44' },
+  addSubtaskBtnText: { color: COLORS.primary, fontWeight: '700' },
   addTaskBtn: { marginTop: SPACING.sm, paddingVertical: SPACING.sm, alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary + '44', borderRadius: 8, borderStyle: 'dashed' },
   detailSection: { marginBottom: SPACING.md, paddingBottom: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   detailSectionTitle: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: SPACING.sm },

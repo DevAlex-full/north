@@ -3,19 +3,29 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, A
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useLeadStore } from '../stores/lead.store'
 import { useProjectStore } from '../stores/project.store'
+import { useFollowUps } from '../hooks/useFollowUps'
 import { Card } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../constants/theme'
 import { formatCurrency } from '../utils/format'
+import { formatDateShort } from '../utils/date'
 import { buildPipelineColumns, getNextLeadStatus, type PipelineCardData } from '../utils/commercial'
 import type { Lead } from '../types/lead.types'
+
+/** Janela padrão (dias) para follow-ups pendentes — mesmo padrão do backend. */
+const FOLLOW_UP_WINDOW_DAYS = 7
 
 export default function PipelineScreen() {
   const router = useRouter()
   const { leads, fetchLeads, updateLead } = useLeadStore()
   const { projects, fetchProjects } = useProjectStore()
   const [refreshing, setRefreshing] = useState(false)
+
+  // Fase 4.3C — Follow-ups pendentes/vencidos, consumindo exclusivamente useFollowUps()
+  const { followUps, isLoading: followUpsLoading, reload: reloadFollowUps } = useFollowUps(FOLLOW_UP_WINDOW_DAYS)
+  const overdueFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() < Date.now())
+  const upcomingFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() >= Date.now())
 
   const load = async () => {
     await Promise.all([fetchLeads(), fetchProjects('CLIENT')])
@@ -48,6 +58,9 @@ export default function PipelineScreen() {
   }
 
   const hasAnyLead = leads.length > 0
+  const hasFollowUpAlerts = overdueFollowUps.length > 0 || upcomingFollowUps.length > 0
+
+  const onRefresh = () => { setRefreshing(true); load(); reloadFollowUps() }
 
   return (
     <View style={styles.container}>
@@ -57,6 +70,42 @@ export default function PipelineScreen() {
         <View style={{ width: 24 }} />
       </View>
 
+      {/* Fase 4.3C — Alertas de follow-up (useFollowUps) */}
+      {!followUpsLoading && hasFollowUpAlerts && (
+        <View style={styles.followUpBanner}>
+          {overdueFollowUps.length > 0 && (
+            <View style={[styles.followUpAlert, styles.followUpAlertDanger]}>
+              <Text style={styles.followUpAlertTitle}>
+                🔴 {overdueFollowUps.length} follow-up{overdueFollowUps.length !== 1 ? 's' : ''} vencido{overdueFollowUps.length !== 1 ? 's' : ''}
+              </Text>
+              {overdueFollowUps.slice(0, 3).map((lead) => (
+                <Text key={lead.id} style={styles.followUpAlertLine}>
+                  • {lead.name}{lead.followUpAt ? ` — ${formatDateShort(lead.followUpAt)}` : ''}
+                </Text>
+              ))}
+              {overdueFollowUps.length > 3 && (
+                <Text style={styles.followUpAlertMore}>+{overdueFollowUps.length - 3} outro(s)</Text>
+              )}
+            </View>
+          )}
+          {upcomingFollowUps.length > 0 && (
+            <View style={[styles.followUpAlert, styles.followUpAlertWarning]}>
+              <Text style={styles.followUpAlertTitle}>
+                🟡 {upcomingFollowUps.length} follow-up{upcomingFollowUps.length !== 1 ? 's' : ''} pendente{upcomingFollowUps.length !== 1 ? 's' : ''}
+              </Text>
+              {upcomingFollowUps.slice(0, 3).map((lead) => (
+                <Text key={lead.id} style={styles.followUpAlertLine}>
+                  • {lead.name}{lead.followUpAt ? ` — ${formatDateShort(lead.followUpAt)}` : ''}
+                </Text>
+              ))}
+              {upcomingFollowUps.length > 3 && (
+                <Text style={styles.followUpAlertMore}>+{upcomingFollowUps.length - 3} outro(s)</Text>
+              )}
+            </View>
+          )}
+        </View>
+      )}
+
       {!hasAnyLead ? (
         <EmptyState icon="📊" title="Nenhum lead no pipeline" subtitle="Cadastre leads na tela de Clientes para vê-los aqui" />
       ) : (
@@ -64,7 +113,7 @@ export default function PipelineScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ padding: SPACING.md, gap: SPACING.md }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load() }} tintColor={COLORS.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
         >
           {columns.map((column) => (
             <View key={column.key} style={styles.column}>
@@ -133,6 +182,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.lg, paddingTop: SPACING.xl + 8 },
   title: { fontSize: FONT_SIZE.xl, fontWeight: '800', color: COLORS.text },
+  followUpBanner: { paddingHorizontal: SPACING.md, gap: SPACING.sm, marginBottom: SPACING.xs },
+  followUpAlert: { borderRadius: RADIUS.md, borderWidth: 1, padding: SPACING.sm },
+  followUpAlertDanger: { backgroundColor: COLORS.danger + '15', borderColor: COLORS.danger + '44' },
+  followUpAlertWarning: { backgroundColor: COLORS.warning + '15', borderColor: COLORS.warning + '44' },
+  followUpAlertTitle: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '800', marginBottom: 4 },
+  followUpAlertLine: { color: COLORS.textSecondary, fontSize: FONT_SIZE.xs, marginBottom: 2 },
+  followUpAlertMore: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, fontStyle: 'italic' },
   column: { width: COLUMN_WIDTH },
   columnHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   columnTitle: { color: COLORS.text, fontSize: FONT_SIZE.md, fontWeight: '800' },
