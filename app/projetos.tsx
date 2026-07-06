@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { useProjectStore } from '../stores/project.store'
 import { useLeadStore } from '../stores/lead.store'
 import { useActivityStore } from '../stores/activity.store'
+import { financialService } from '../services/financial.service'
 import { useProjectsFinance } from '../hooks/useProjectsFinance'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -20,6 +21,7 @@ import { formatCurrency, getProjectKindLabel } from '../utils/format'
 import { formatDateShort } from '../utils/date'
 import { buildProjectTimeline } from '../utils/commercial'
 import type { Project, ProjectTask, ProjectSubTask, ProjectKind, ProjectClientStatus } from '../types/project.types'
+import type { FinancialCategory } from '../types/financial.types'
 
 const STATUS_OPTIONS = [
   { label: '💡 Ideia', value: 'IDEA' },
@@ -71,8 +73,9 @@ function isProjectClientStatus(v: string): v is ProjectClientStatus { return (CL
  * continua sendo a única fonte de verdade, editável no modal de tarefa.
  */
 function isTaskDone(task: ProjectTask): boolean {
-  return task.subtasks.length > 0
-    ? task.subtasks.every((s) => s.status === 'DONE')
+  const subtasks = task.subtasks ?? []
+  return subtasks.length > 0
+    ? subtasks.every((s) => s.status === 'DONE')
     : task.status === 'DONE'
 }
 
@@ -113,6 +116,17 @@ export default function ProjetosScreen() {
   const [taskEditTitle, setTaskEditTitle] = useState('')
   const [taskEditStatus, setTaskEditStatus] = useState('PENDING')
   const [taskEditPriority, setTaskEditPriority] = useState('2')
+
+  // Fase 4.4A — Pagamento/Despesa do projeto
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentProject, setPaymentProject] = useState<Project | null>(null)
+  const [paymentType, setPaymentType] = useState<'INCOME' | 'EXPENSE'>('INCOME')
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentCategoryId, setPaymentCategoryId] = useState('')
+  const [paymentDescription, setPaymentDescription] = useState('')
+  const [paymentDate, setPaymentDate] = useState('')
+  const [financialCategories, setFinancialCategories] = useState<FinancialCategory[]>([])
+  const [savingPayment, setSavingPayment] = useState(false)
 
   const load = async () => {
     await Promise.all([fetchProjects(), fetchLeads()])
@@ -218,6 +232,58 @@ export default function ProjetosScreen() {
   const getProgress = (tasks: ProjectTask[]) => {
     if (!tasks?.length) return 0
     return Math.round((tasks.filter(isTaskDone).length / tasks.length) * 100)
+  }
+
+  /**
+   * Fase 4.4A — Abre o formulário de lançamento financeiro rápido do
+   * projeto (pagamento recebido ou despesa). Segue o mesmo padrão já usado
+   * ao editar tarefa a partir do modal de detalhe: fecha o modal de
+   * detalhe antes de abrir o novo, evitando empilhar modais.
+   */
+  const openPaymentModal = async (project: Project, type: 'INCOME' | 'EXPENSE') => {
+    setShowDetailModal(false)
+    setPaymentProject(project)
+    setPaymentType(type)
+    setPaymentAmount(''); setPaymentCategoryId(''); setPaymentDescription(''); setPaymentDate('')
+    setShowPaymentModal(true)
+    if (financialCategories.length === 0) {
+      try { setFinancialCategories(await financialService.getCategories()) } catch {}
+    }
+  }
+
+  /**
+   * Cria a transação financeira sempre vinculada ao projeto (`projectId`).
+   * O financeiro do projeto continua 100% derivado de FinancialTransaction
+   * — nenhum valor é somado ou guardado localmente; após salvar, apenas
+   * recarregamos o resumo (`reloadFinance`). Quando é um pagamento
+   * (INCOME), o backend já cria o ActivityLog automático — aqui só
+   * atualizamos a timeline local para refletir o novo evento.
+   */
+  const savePayment = async () => {
+    if (!paymentProject) return
+    if (!paymentAmount || !paymentCategoryId) { Alert.alert('Atenção', 'Preencha valor e categoria'); return }
+    const val = parseFloat(paymentAmount.replace(',', '.'))
+    if (isNaN(val) || val <= 0) { Alert.alert('Atenção', 'Valor inválido'); return }
+    setSavingPayment(true)
+    try {
+      await financialService.createTransaction({
+        type: paymentType,
+        categoryId: paymentCategoryId,
+        projectId: paymentProject.id,
+        amount: val,
+        description: paymentDescription || undefined,
+        date: paymentDate || undefined,
+      })
+      setShowPaymentModal(false)
+      await reloadFinance()
+      if (paymentType === 'INCOME') {
+        fetchActivities({ projectId: paymentProject.id }).catch(() => {})
+      }
+    } catch {
+      Alert.alert('Erro', paymentType === 'INCOME' ? 'Não foi possível registrar o pagamento' : 'Não foi possível registrar a despesa')
+    } finally {
+      setSavingPayment(false)
+    }
   }
 
   return (
@@ -343,17 +409,27 @@ export default function ProjetosScreen() {
             )}
 
             {/* Financeiro do Projeto */}
-            {financeByProjectId[detailProject.id] && (
-              <View style={styles.detailSection}>
-                <Text style={styles.detailSectionTitle}>💰 Financeiro do Projeto</Text>
+            <View style={styles.detailSection}>
+              <Text style={styles.detailSectionTitle}>💰 Financeiro do Projeto</Text>
+              {financeByProjectId[detailProject.id] && (
                 <View style={styles.financeRow}>
                   <View style={styles.financeItem}><Text style={styles.financeLabel}>Combinado</Text><Text style={styles.financeValue}>{formatCurrency(detailProject.agreedValue || 0)}</Text></View>
                   <View style={styles.financeItem}><Text style={styles.financeLabel}>Recebido</Text><Text style={[styles.financeValue, { color: COLORS.success }]}>{formatCurrency(financeByProjectId[detailProject.id].received)}</Text></View>
                   <View style={styles.financeItem}><Text style={styles.financeLabel}>Pendente</Text><Text style={[styles.financeValue, { color: COLORS.warning }]}>{formatCurrency(financeByProjectId[detailProject.id].pending)}</Text></View>
                   <View style={styles.financeItem}><Text style={styles.financeLabel}>Lucro</Text><Text style={[styles.financeValue, { color: financeByProjectId[detailProject.id].profit >= 0 ? COLORS.success : COLORS.danger }]}>{formatCurrency(financeByProjectId[detailProject.id].profit)}</Text></View>
                 </View>
+              )}
+
+              {/* Fase 4.4A — Lançamento financeiro rápido, sempre vinculado ao projeto */}
+              <View style={styles.paymentActionsRow}>
+                <TouchableOpacity style={styles.paymentActionBtn} onPress={() => openPaymentModal(detailProject, 'INCOME')}>
+                  <Text style={styles.paymentActionText}>💰 Registrar pagamento</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.paymentActionBtn, styles.expenseActionBtn]} onPress={() => openPaymentModal(detailProject, 'EXPENSE')}>
+                  <Text style={[styles.paymentActionText, { color: COLORS.danger }]}>💸 Registrar despesa</Text>
+                </TouchableOpacity>
               </View>
-            )}
+            </View>
 
             {/* Tarefas */}
             <View style={styles.detailSection}>
@@ -415,6 +491,31 @@ export default function ProjetosScreen() {
         <Select label="Prioridade" value={taskEditPriority} options={TASK_PRIORITY_OPTIONS} onChange={setTaskEditPriority} />
         <Button title={saving ? 'Salvando...' : 'Salvar alterações'} onPress={saveTaskEdit} loading={saving} size="lg" style={{ marginTop: SPACING.sm }} />
       </Modal>
+
+      {/* Modal Registrar Pagamento/Despesa — Fase 4.4A */}
+      <Modal
+        visible={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        title={paymentType === 'INCOME' ? `💰 Pagamento — ${paymentProject?.name ?? ''}` : `💸 Despesa — ${paymentProject?.name ?? ''}`}
+      >
+        <Input label="Valor (R$) *" value={paymentAmount} onChangeText={setPaymentAmount} placeholder="0,00" keyboardType="decimal-pad" />
+        <Select
+          label="Categoria *"
+          value={paymentCategoryId}
+          options={financialCategories.filter((c) => c.type === paymentType).map((c) => ({ label: c.name, value: c.id }))}
+          onChange={setPaymentCategoryId}
+          placeholder="Selecionar categoria"
+        />
+        <Input label="Descrição" value={paymentDescription} onChangeText={setPaymentDescription} placeholder="Opcional..." />
+        <Input label="Data (AAAA-MM-DD)" value={paymentDate} onChangeText={setPaymentDate} placeholder="Deixe em branco para hoje" />
+        <Button
+          title={savingPayment ? 'Registrando...' : paymentType === 'INCOME' ? 'Registrar pagamento' : 'Registrar despesa'}
+          onPress={savePayment}
+          loading={savingPayment}
+          size="lg"
+          style={{ marginTop: SPACING.sm }}
+        />
+      </Modal>
     </View>
   )
 }
@@ -448,7 +549,7 @@ function TaskItem({
   const [newSubtitle, setNewSubtitle] = useState('')
   const [adding, setAdding] = useState(false)
 
-  const subtasks = task.subtasks || []
+  const subtasks = task.subtasks ?? []
   const hasSubtasks = subtasks.length > 0
   const doneCount = subtasks.filter((s) => s.status === 'DONE').length
 
@@ -621,6 +722,10 @@ const styles = StyleSheet.create({
   addSubtaskBtn: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: 8, borderWidth: 1, borderColor: COLORS.primary + '44' },
   addSubtaskBtnText: { color: COLORS.primary, fontWeight: '700' },
   addTaskBtn: { marginTop: SPACING.sm, paddingVertical: SPACING.sm, alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary + '44', borderRadius: 8, borderStyle: 'dashed' },
+  paymentActionsRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
+  paymentActionBtn: { flex: 1, paddingVertical: SPACING.sm, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: COLORS.success + '44', backgroundColor: COLORS.success + '15' },
+  expenseActionBtn: { borderColor: COLORS.danger + '44', backgroundColor: COLORS.danger + '15' },
+  paymentActionText: { color: COLORS.success, fontSize: FONT_SIZE.xs, fontWeight: '700' },
   detailSection: { marginBottom: SPACING.md, paddingBottom: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   detailSectionTitle: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: SPACING.sm },
   detailValue: { color: COLORS.text, fontSize: FONT_SIZE.md },
