@@ -11,7 +11,7 @@ import { ActivityTimeline } from '../components/ui/ActivityTimeline'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../constants/theme'
 import { formatCurrency } from '../utils/format'
 import { formatDateShort } from '../utils/date'
-import { getCommercialMetrics } from '../utils/commercial'
+import { getCommercialMetrics, groupFollowUpsByUrgency } from '../utils/commercial'
 
 /** Janela padrão (dias) para follow-ups pendentes — mesmo padrão do backend. */
 const FOLLOW_UP_WINDOW_DAYS = 7
@@ -28,10 +28,9 @@ export default function DashboardComercialScreen() {
   const projectIds = clientProjects.map((p) => p.id)
   const { financeByProjectId, reload: reloadFinance } = useProjectsFinance(projectIds)
 
-  // Fase 4.3C — Resumo de Follow-ups, consumindo exclusivamente useFollowUps()
+  // Fase 4.4C — Resumo de Follow-ups em 3 baldes, consumindo exclusivamente useFollowUps()
   const { followUps, isLoading: followUpsLoading, reload: reloadFollowUps } = useFollowUps(FOLLOW_UP_WINDOW_DAYS)
-  const overdueFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() < Date.now())
-  const upcomingFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() >= Date.now())
+  const followUpGroups = groupFollowUpsByUrgency(followUps)
 
   const load = async () => {
     await Promise.all([fetchLeads(), fetchProjects('CLIENT'), fetchActivities()])
@@ -83,26 +82,31 @@ export default function DashboardComercialScreen() {
           <FinancialRow label="Pendente" value={metrics.pendingRevenue} color={COLORS.warning} last />
         </Card>
 
-        {/* Fase 4.3C — Resumo de Follow-ups (useFollowUps) */}
+        {/* Fase 4.4C — Resumo de Follow-ups em 3 baldes (useFollowUps + groupFollowUpsByUrgency) */}
         <Text style={styles.sectionTitle}>📅 Resumo de Follow-ups</Text>
         <Card>
           <View style={styles.followUpSummaryRow}>
             <View style={styles.followUpSummaryItem}>
-              <Text style={[styles.followUpSummaryValue, { color: COLORS.danger }]}>{followUpsLoading ? '—' : overdueFollowUps.length}</Text>
-              <Text style={styles.followUpSummaryLabel}>Vencidos</Text>
+              <Text style={[styles.followUpSummaryValue, { color: COLORS.danger }]}>{followUpsLoading ? '—' : followUpGroups.overdue.length}</Text>
+              <Text style={styles.followUpSummaryLabel}>Atrasados</Text>
             </View>
             <View style={styles.followUpSummaryItem}>
-              <Text style={[styles.followUpSummaryValue, { color: COLORS.warning }]}>{followUpsLoading ? '—' : upcomingFollowUps.length}</Text>
-              <Text style={styles.followUpSummaryLabel}>Pendentes (7 dias)</Text>
+              <Text style={[styles.followUpSummaryValue, { color: COLORS.warning }]}>{followUpsLoading ? '—' : followUpGroups.today.length}</Text>
+              <Text style={styles.followUpSummaryLabel}>Hoje</Text>
+            </View>
+            <View style={styles.followUpSummaryItem}>
+              <Text style={[styles.followUpSummaryValue, { color: COLORS.primary }]}>{followUpsLoading ? '—' : followUpGroups.upcoming.length}</Text>
+              <Text style={styles.followUpSummaryLabel}>Próximos dias</Text>
             </View>
           </View>
 
-          {!followUpsLoading && overdueFollowUps.length === 0 && upcomingFollowUps.length === 0 && (
+          {!followUpsLoading && followUpGroups.overdue.length === 0 && followUpGroups.today.length === 0 && followUpGroups.upcoming.length === 0 && (
             <Text style={styles.emptyText}>Nenhum follow-up pendente ou vencido. 🎉</Text>
           )}
 
-          {overdueFollowUps.slice(0, 5).map((lead) => (
-            <View key={lead.id} style={styles.contactRow}>
+          {/* Destaque visual para atrasados — sempre no topo da lista */}
+          {followUpGroups.overdue.slice(0, 5).map((lead) => (
+            <View key={lead.id} style={[styles.contactRow, styles.contactRowOverdue]}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contactName}>🔴 {lead.name}</Text>
                 {lead.company && <Text style={styles.contactSub}>🏢 {lead.company}</Text>}
@@ -112,13 +116,22 @@ export default function DashboardComercialScreen() {
               </Text>
             </View>
           ))}
-          {upcomingFollowUps.slice(0, 5).map((lead) => (
+          {followUpGroups.today.slice(0, 5).map((lead) => (
+            <View key={lead.id} style={styles.contactRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contactName}>🟠 {lead.name}</Text>
+                {lead.company && <Text style={styles.contactSub}>🏢 {lead.company}</Text>}
+              </View>
+              <Text style={[styles.contactDate, { color: COLORS.warning }]}>Hoje</Text>
+            </View>
+          ))}
+          {followUpGroups.upcoming.slice(0, 5).map((lead) => (
             <View key={lead.id} style={styles.contactRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contactName}>🟡 {lead.name}</Text>
                 {lead.company && <Text style={styles.contactSub}>🏢 {lead.company}</Text>}
               </View>
-              <Text style={[styles.contactDate, { color: COLORS.warning }]}>
+              <Text style={[styles.contactDate, { color: COLORS.primary }]}>
                 {lead.followUpAt ? formatDateShort(lead.followUpAt) : '-'}
               </Text>
             </View>
@@ -213,6 +226,7 @@ const styles = StyleSheet.create({
   followUpSummaryValue: { fontSize: FONT_SIZE.xxl, fontWeight: '900' },
   followUpSummaryLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 },
   contactRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: SPACING.sm, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  contactRowOverdue: { backgroundColor: COLORS.danger + '10', paddingHorizontal: SPACING.sm, borderRadius: RADIUS.sm },
   contactName: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '600' },
   contactSub: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs },
   contactDate: { fontSize: FONT_SIZE.sm, fontWeight: '700' },

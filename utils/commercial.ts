@@ -1,5 +1,6 @@
 import type { Lead, LeadStatus } from '../types/lead.types'
 import type { Project, ProjectFinance } from '../types/project.types'
+import { startOfDaySP, endOfDaySP, getTodayString } from './date'
 
 /** As 7 colunas do Pipeline pedidas na Fase 4.2A, nesta ordem fixa. */
 export type PipelineColumnKey =
@@ -271,4 +272,44 @@ export function buildProjectTimeline(project: Project): TimelineEvent[] {
   }
 
   return events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+}
+
+/** Follow-ups agrupados por urgência (Fase 4.4C). */
+export interface FollowUpGroups {
+  overdue: Lead[]
+  today: Lead[]
+  upcoming: Lead[]
+}
+
+/**
+ * Fase 4.4C — Agrupa os leads retornados por `useFollowUps()` em 3 baldes
+ * visuais: atrasados, hoje e próximos dias. A comparação sempre passa pelo
+ * calendário de São Paulo (`startOfDaySP`/`endOfDaySP`/`getTodayString`,
+ * já usados no resto do app) — nunca pelo fuso do dispositivo nem por um
+ * corte bruto de timestamp, que classificaria erradamente um follow-up
+ * "hoje às 23h" como atrasado perto da meia-noite em alguns fusos.
+ * Cada balde vem ordenado por data crescente (mais urgente primeiro).
+ */
+export function groupFollowUpsByUrgency(leads: Lead[]): FollowUpGroups {
+  const todayStart = startOfDaySP(getTodayString()).getTime()
+  const todayEnd = endOfDaySP(getTodayString()).getTime()
+
+  const withFollowUp = leads.filter((l) => !!l.followUpAt)
+  const byDateAsc = (a: Lead, b: Lead) =>
+    new Date(a.followUpAt as string).getTime() - new Date(b.followUpAt as string).getTime()
+
+  const overdue = withFollowUp
+    .filter((l) => new Date(l.followUpAt as string).getTime() < todayStart)
+    .sort(byDateAsc)
+  const today = withFollowUp
+    .filter((l) => {
+      const t = new Date(l.followUpAt as string).getTime()
+      return t >= todayStart && t <= todayEnd
+    })
+    .sort(byDateAsc)
+  const upcoming = withFollowUp
+    .filter((l) => new Date(l.followUpAt as string).getTime() > todayEnd)
+    .sort(byDateAsc)
+
+  return { overdue, today, upcoming }
 }

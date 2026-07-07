@@ -10,7 +10,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../constants/theme'
 import { formatCurrency } from '../utils/format'
 import { formatDateShort } from '../utils/date'
-import { buildPipelineColumns, getNextLeadStatus, type PipelineCardData } from '../utils/commercial'
+import { buildPipelineColumns, getNextLeadStatus, groupFollowUpsByUrgency, type PipelineCardData } from '../utils/commercial'
 import type { Lead } from '../types/lead.types'
 
 /** Janela padrão (dias) para follow-ups pendentes — mesmo padrão do backend. */
@@ -22,10 +22,11 @@ export default function PipelineScreen() {
   const { projects, fetchProjects } = useProjectStore()
   const [refreshing, setRefreshing] = useState(false)
 
-  // Fase 4.3C — Follow-ups pendentes/vencidos, consumindo exclusivamente useFollowUps()
+  // Fase 4.4C — Follow-ups agrupados em 3 baldes (atrasado/hoje/próximos dias), consumindo exclusivamente useFollowUps()
   const { followUps, isLoading: followUpsLoading, reload: reloadFollowUps } = useFollowUps(FOLLOW_UP_WINDOW_DAYS)
-  const overdueFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() < Date.now())
-  const upcomingFollowUps = followUps.filter((l) => l.followUpAt && new Date(l.followUpAt).getTime() >= Date.now())
+  const followUpGroups = groupFollowUpsByUrgency(followUps)
+  const overdueLeadIds = new Set(followUpGroups.overdue.map((l) => l.id))
+  const todayLeadIds = new Set(followUpGroups.today.map((l) => l.id))
 
   const load = async () => {
     await Promise.all([fetchLeads(), fetchProjects('CLIENT')])
@@ -58,7 +59,7 @@ export default function PipelineScreen() {
   }
 
   const hasAnyLead = leads.length > 0
-  const hasFollowUpAlerts = overdueFollowUps.length > 0 || upcomingFollowUps.length > 0
+  const hasFollowUpAlerts = followUpGroups.overdue.length > 0 || followUpGroups.today.length > 0 || followUpGroups.upcoming.length > 0
 
   const onRefresh = () => { setRefreshing(true); load(); reloadFollowUps() }
 
@@ -70,36 +71,49 @@ export default function PipelineScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Fase 4.3C — Alertas de follow-up (useFollowUps) */}
+      {/* Fase 4.4C — Alertas de follow-up em 3 baldes (useFollowUps + groupFollowUpsByUrgency) */}
       {!followUpsLoading && hasFollowUpAlerts && (
         <View style={styles.followUpBanner}>
-          {overdueFollowUps.length > 0 && (
+          {followUpGroups.overdue.length > 0 && (
             <View style={[styles.followUpAlert, styles.followUpAlertDanger]}>
               <Text style={styles.followUpAlertTitle}>
-                🔴 {overdueFollowUps.length} follow-up{overdueFollowUps.length !== 1 ? 's' : ''} vencido{overdueFollowUps.length !== 1 ? 's' : ''}
+                🔴 Atrasados ({followUpGroups.overdue.length})
               </Text>
-              {overdueFollowUps.slice(0, 3).map((lead) => (
+              {followUpGroups.overdue.slice(0, 3).map((lead) => (
                 <Text key={lead.id} style={styles.followUpAlertLine}>
                   • {lead.name}{lead.followUpAt ? ` — ${formatDateShort(lead.followUpAt)}` : ''}
                 </Text>
               ))}
-              {overdueFollowUps.length > 3 && (
-                <Text style={styles.followUpAlertMore}>+{overdueFollowUps.length - 3} outro(s)</Text>
+              {followUpGroups.overdue.length > 3 && (
+                <Text style={styles.followUpAlertMore}>+{followUpGroups.overdue.length - 3} outro(s)</Text>
               )}
             </View>
           )}
-          {upcomingFollowUps.length > 0 && (
+          {followUpGroups.today.length > 0 && (
+            <View style={[styles.followUpAlert, styles.followUpAlertToday]}>
+              <Text style={styles.followUpAlertTitle}>
+                🟠 Hoje ({followUpGroups.today.length})
+              </Text>
+              {followUpGroups.today.slice(0, 3).map((lead) => (
+                <Text key={lead.id} style={styles.followUpAlertLine}>• {lead.name}</Text>
+              ))}
+              {followUpGroups.today.length > 3 && (
+                <Text style={styles.followUpAlertMore}>+{followUpGroups.today.length - 3} outro(s)</Text>
+              )}
+            </View>
+          )}
+          {followUpGroups.upcoming.length > 0 && (
             <View style={[styles.followUpAlert, styles.followUpAlertWarning]}>
               <Text style={styles.followUpAlertTitle}>
-                🟡 {upcomingFollowUps.length} follow-up{upcomingFollowUps.length !== 1 ? 's' : ''} pendente{upcomingFollowUps.length !== 1 ? 's' : ''}
+                🟡 Próximos dias ({followUpGroups.upcoming.length})
               </Text>
-              {upcomingFollowUps.slice(0, 3).map((lead) => (
+              {followUpGroups.upcoming.slice(0, 3).map((lead) => (
                 <Text key={lead.id} style={styles.followUpAlertLine}>
                   • {lead.name}{lead.followUpAt ? ` — ${formatDateShort(lead.followUpAt)}` : ''}
                 </Text>
               ))}
-              {upcomingFollowUps.length > 3 && (
-                <Text style={styles.followUpAlertMore}>+{upcomingFollowUps.length - 3} outro(s)</Text>
+              {followUpGroups.upcoming.length > 3 && (
+                <Text style={styles.followUpAlertMore}>+{followUpGroups.upcoming.length - 3} outro(s)</Text>
               )}
             </View>
           )}
@@ -139,7 +153,19 @@ export default function PipelineScreen() {
                         {lead.company && <Text style={styles.cardLine}>🏢 {lead.company}</Text>}
                         {(lead.phone || lead.whatsapp) && <Text style={styles.cardLine}>📞 {lead.whatsapp || lead.phone}</Text>}
                         {lead.followUpAt && (
-                          <Text style={styles.cardLine}>📅 {new Date(lead.followUpAt).toLocaleDateString('pt-BR')}</Text>
+                          <View style={styles.followUpDateRow}>
+                            <Text style={styles.cardLine}>📅 {new Date(lead.followUpAt).toLocaleDateString('pt-BR')}</Text>
+                            {overdueLeadIds.has(lead.id) && (
+                              <View style={[styles.followUpCardBadge, styles.followUpCardBadgeDanger]}>
+                                <Text style={styles.followUpCardBadgeText}>🔴 Atrasado</Text>
+                              </View>
+                            )}
+                            {todayLeadIds.has(lead.id) && (
+                              <View style={[styles.followUpCardBadge, styles.followUpCardBadgeToday]}>
+                                <Text style={styles.followUpCardBadgeText}>🟠 Hoje</Text>
+                              </View>
+                            )}
+                          </View>
                         )}
                         {combinedValue != null && (
                           <Text style={[styles.cardLine, { color: COLORS.success, fontWeight: '700' }]}>💰 {formatCurrency(combinedValue)}</Text>
@@ -185,10 +211,16 @@ const styles = StyleSheet.create({
   followUpBanner: { paddingHorizontal: SPACING.md, gap: SPACING.sm, marginBottom: SPACING.xs },
   followUpAlert: { borderRadius: RADIUS.md, borderWidth: 1, padding: SPACING.sm },
   followUpAlertDanger: { backgroundColor: COLORS.danger + '15', borderColor: COLORS.danger + '44' },
+  followUpAlertToday: { backgroundColor: COLORS.warning + '22', borderColor: COLORS.warning + '55' },
   followUpAlertWarning: { backgroundColor: COLORS.warning + '15', borderColor: COLORS.warning + '44' },
   followUpAlertTitle: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '800', marginBottom: 4 },
   followUpAlertLine: { color: COLORS.textSecondary, fontSize: FONT_SIZE.xs, marginBottom: 2 },
   followUpAlertMore: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, fontStyle: 'italic' },
+  followUpDateRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
+  followUpCardBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: RADIUS.full, borderWidth: 1 },
+  followUpCardBadgeDanger: { backgroundColor: COLORS.danger + '22', borderColor: COLORS.danger + '55' },
+  followUpCardBadgeToday: { backgroundColor: COLORS.warning + '22', borderColor: COLORS.warning + '55' },
+  followUpCardBadgeText: { color: COLORS.text, fontSize: 10, fontWeight: '800' },
   column: { width: COLUMN_WIDTH },
   columnHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   columnTitle: { color: COLORS.text, fontSize: FONT_SIZE.md, fontWeight: '800' },
