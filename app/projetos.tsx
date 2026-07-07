@@ -6,6 +6,7 @@ import { useLeadStore } from '../stores/lead.store'
 import { useActivityStore } from '../stores/activity.store'
 import { financialService } from '../services/financial.service'
 import { useProjectsFinance } from '../hooks/useProjectsFinance'
+import { useProjectTransactions } from '../hooks/useProjectTransactions'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
@@ -16,7 +17,7 @@ import { ProgressBar } from '../components/ui/ProgressBar'
 import { Checkbox } from '../components/ui/Checkbox'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ActivityTimeline } from '../components/ui/ActivityTimeline'
-import { COLORS, SPACING, FONT_SIZE } from '../constants/theme'
+import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../constants/theme'
 import { formatCurrency, getProjectKindLabel } from '../utils/format'
 import { formatDateShort } from '../utils/date'
 import { buildProjectTimeline } from '../utils/commercial'
@@ -95,6 +96,8 @@ export default function ProjetosScreen() {
   const [showTaskEditModal, setShowTaskEditModal] = useState(false)
   const [editing, setEditing] = useState<Project | null>(null)
   const [detailProject, setDetailProject] = useState<Project | null>(null)
+  // Fase 4.4D — Histórico financeiro do projeto em detalhe
+  const { transactions, isLoading: transactionsLoading, reload: reloadTransactions } = useProjectTransactions(detailProject?.id ?? null)
   const [editingTask, setEditingTask] = useState<ProjectTask | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [saving, setSaving] = useState(false)
@@ -125,6 +128,8 @@ export default function ProjetosScreen() {
   const [paymentCategoryId, setPaymentCategoryId] = useState('')
   const [paymentDescription, setPaymentDescription] = useState('')
   const [paymentDate, setPaymentDate] = useState('')
+  const [paymentInstallmentNumber, setPaymentInstallmentNumber] = useState('')
+  const [paymentInstallmentTotal, setPaymentInstallmentTotal] = useState('')
   const [financialCategories, setFinancialCategories] = useState<FinancialCategory[]>([])
   const [savingPayment, setSavingPayment] = useState(false)
 
@@ -245,6 +250,7 @@ export default function ProjetosScreen() {
     setPaymentProject(project)
     setPaymentType(type)
     setPaymentAmount(''); setPaymentCategoryId(''); setPaymentDescription(''); setPaymentDate('')
+    setPaymentInstallmentNumber(''); setPaymentInstallmentTotal('')
     setShowPaymentModal(true)
     if (financialCategories.length === 0) {
       try { setFinancialCategories(await financialService.getCategories()) } catch {}
@@ -255,9 +261,16 @@ export default function ProjetosScreen() {
    * Cria a transação financeira sempre vinculada ao projeto (`projectId`).
    * O financeiro do projeto continua 100% derivado de FinancialTransaction
    * — nenhum valor é somado ou guardado localmente; após salvar, apenas
-   * recarregamos o resumo (`reloadFinance`). Quando é um pagamento
-   * (INCOME), o backend já cria o ActivityLog automático — aqui só
-   * atualizamos a timeline local para refletir o novo evento.
+   * recarregamos o resumo (`reloadFinance`) e o histórico
+   * (`reloadTransactions`). Quando é um pagamento (INCOME), o backend já
+   * cria o ActivityLog automático — aqui só atualizamos a timeline local
+   * para refletir o novo evento.
+   *
+   * Fase 4.4D — Parcelas: "nº da parcela" e "total de parcelas" não criam
+   * nenhum campo/tabela nova — são só compostos no `description` da
+   * própria FinancialTransaction (ex: "Parcela 2/3 — Sinal do projeto"),
+   * exatamente como pedido. Só fazem sentido para pagamento (INCOME); em
+   * despesa os dois campos nem aparecem no formulário.
    */
   const savePayment = async () => {
     if (!paymentProject) return
@@ -266,16 +279,23 @@ export default function ProjetosScreen() {
     if (isNaN(val) || val <= 0) { Alert.alert('Atenção', 'Valor inválido'); return }
     setSavingPayment(true)
     try {
+      const installmentLabel = paymentType === 'INCOME' && paymentInstallmentNumber && paymentInstallmentTotal
+        ? `Parcela ${paymentInstallmentNumber}/${paymentInstallmentTotal}`
+        : ''
+      const finalDescription = installmentLabel
+        ? (paymentDescription ? `${installmentLabel} — ${paymentDescription}` : installmentLabel)
+        : paymentDescription
+
       await financialService.createTransaction({
         type: paymentType,
         categoryId: paymentCategoryId,
         projectId: paymentProject.id,
         amount: val,
-        description: paymentDescription || undefined,
+        description: finalDescription || undefined,
         date: paymentDate || undefined,
       })
       setShowPaymentModal(false)
-      await reloadFinance()
+      await Promise.all([reloadFinance(), reloadTransactions()])
       if (paymentType === 'INCOME') {
         fetchActivities({ projectId: paymentProject.id }).catch(() => {})
       }
@@ -412,11 +432,29 @@ export default function ProjetosScreen() {
             <View style={styles.detailSection}>
               <Text style={styles.detailSectionTitle}>💰 Financeiro do Projeto</Text>
               {financeByProjectId[detailProject.id] && (
-                <View style={styles.financeRow}>
-                  <View style={styles.financeItem}><Text style={styles.financeLabel}>Combinado</Text><Text style={styles.financeValue}>{formatCurrency(detailProject.agreedValue || 0)}</Text></View>
-                  <View style={styles.financeItem}><Text style={styles.financeLabel}>Recebido</Text><Text style={[styles.financeValue, { color: COLORS.success }]}>{formatCurrency(financeByProjectId[detailProject.id].received)}</Text></View>
-                  <View style={styles.financeItem}><Text style={styles.financeLabel}>Pendente</Text><Text style={[styles.financeValue, { color: COLORS.warning }]}>{formatCurrency(financeByProjectId[detailProject.id].pending)}</Text></View>
-                  <View style={styles.financeItem}><Text style={styles.financeLabel}>Lucro</Text><Text style={[styles.financeValue, { color: financeByProjectId[detailProject.id].profit >= 0 ? COLORS.success : COLORS.danger }]}>{formatCurrency(financeByProjectId[detailProject.id].profit)}</Text></View>
+                <View style={styles.financeSummaryGrid}>
+                  <View style={styles.financeChip}>
+                    <Text style={styles.financeChipLabel}>Combinado</Text>
+                    <Text style={styles.financeChipValue}>{formatCurrency(detailProject.agreedValue || 0)}</Text>
+                  </View>
+                  <View style={styles.financeChip}>
+                    <Text style={styles.financeChipLabel}>Recebido</Text>
+                    <Text style={[styles.financeChipValue, { color: COLORS.success }]}>{formatCurrency(financeByProjectId[detailProject.id].received)}</Text>
+                  </View>
+                  <View style={[styles.financeChip, styles.financeChipHighlightWarning]}>
+                    <Text style={styles.financeChipLabel}>Pendente</Text>
+                    <Text style={[styles.financeChipValue, { color: COLORS.warning }]}>{formatCurrency(financeByProjectId[detailProject.id].pending)}</Text>
+                  </View>
+                  <View style={[styles.financeChip, styles.financeChipHighlightDanger]}>
+                    <Text style={styles.financeChipLabel}>Custos</Text>
+                    <Text style={[styles.financeChipValue, { color: COLORS.danger }]}>{formatCurrency(financeByProjectId[detailProject.id].spent)}</Text>
+                  </View>
+                  <View style={[styles.financeChip, financeByProjectId[detailProject.id].profit >= 0 ? styles.financeChipHighlightSuccess : styles.financeChipHighlightDanger]}>
+                    <Text style={styles.financeChipLabel}>Lucro</Text>
+                    <Text style={[styles.financeChipValue, { color: financeByProjectId[detailProject.id].profit >= 0 ? COLORS.success : COLORS.danger }]}>
+                      {formatCurrency(financeByProjectId[detailProject.id].profit)}
+                    </Text>
+                  </View>
                 </View>
               )}
 
@@ -429,6 +467,32 @@ export default function ProjetosScreen() {
                   <Text style={[styles.paymentActionText, { color: COLORS.danger }]}>💸 Registrar despesa</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+
+            {/* Fase 4.4D — Histórico Financeiro (lista de FinancialTransaction do projeto) */}
+            <View style={styles.detailSection}>
+              <Text style={styles.detailSectionTitle}>🧾 Histórico Financeiro</Text>
+              {transactionsLoading ? (
+                <Text style={styles.emptyText}>Carregando lançamentos...</Text>
+              ) : transactions.length === 0 ? (
+                <Text style={styles.emptyText}>Nenhum lançamento registrado para este projeto ainda.</Text>
+              ) : (
+                transactions.map((t) => (
+                  <View key={t.id} style={styles.transactionRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.transactionDesc}>
+                        {t.type === 'INCOME' ? '💰' : '💸'} {t.description || t.category?.name || (t.type === 'INCOME' ? 'Pagamento' : 'Despesa')}
+                      </Text>
+                      <Text style={styles.transactionMeta}>
+                        {formatDateShort(t.date)}{t.category?.name ? ` · ${t.category.name}` : ''}
+                      </Text>
+                    </View>
+                    <Text style={[styles.transactionAmount, { color: t.type === 'INCOME' ? COLORS.success : COLORS.danger }]}>
+                      {t.type === 'INCOME' ? '+' : '-'} {formatCurrency(t.amount)}
+                    </Text>
+                  </View>
+                ))
+              )}
             </View>
 
             {/* Tarefas */}
@@ -506,6 +570,16 @@ export default function ProjetosScreen() {
           onChange={setPaymentCategoryId}
           placeholder="Selecionar categoria"
         />
+        {paymentType === 'INCOME' && (
+          <View style={styles.installmentRow}>
+            <View style={{ flex: 1 }}>
+              <Input label="Parcela nº (opcional)" value={paymentInstallmentNumber} onChangeText={setPaymentInstallmentNumber} placeholder="Ex: 2" keyboardType="number-pad" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Input label="De quantas" value={paymentInstallmentTotal} onChangeText={setPaymentInstallmentTotal} placeholder="Ex: 3" keyboardType="number-pad" />
+            </View>
+          </View>
+        )}
         <Input label="Descrição" value={paymentDescription} onChangeText={setPaymentDescription} placeholder="Opcional..." />
         <Input label="Data (AAAA-MM-DD)" value={paymentDate} onChangeText={setPaymentDate} placeholder="Deixe em branco para hoje" />
         <Button
@@ -708,6 +782,21 @@ const styles = StyleSheet.create({
   financeItem: { alignItems: 'center', flex: 1 },
   financeLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginBottom: 2 },
   financeValue: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '800' },
+  // Fase 4.4D — resumo financeiro do projeto, em chips (substitui financeRow/financeItem só no modal de detalhe)
+  financeSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.sm },
+  financeChip: { flexBasis: '30%', flexGrow: 1, backgroundColor: COLORS.surfaceLight, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, paddingVertical: SPACING.sm, alignItems: 'center' },
+  financeChipHighlightWarning: { backgroundColor: COLORS.warning + '15', borderColor: COLORS.warning + '44' },
+  financeChipHighlightDanger: { backgroundColor: COLORS.danger + '15', borderColor: COLORS.danger + '44' },
+  financeChipHighlightSuccess: { backgroundColor: COLORS.success + '15', borderColor: COLORS.success + '44' },
+  financeChipLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginBottom: 2 },
+  financeChipValue: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '800' },
+  // Fase 4.4D — histórico financeiro do projeto
+  emptyText: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, textAlign: 'center', paddingVertical: SPACING.md },
+  transactionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: SPACING.sm, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  transactionDesc: { color: COLORS.text, fontSize: FONT_SIZE.sm, fontWeight: '600' },
+  transactionMeta: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 },
+  transactionAmount: { fontSize: FONT_SIZE.sm, fontWeight: '800' },
+  installmentRow: { flexDirection: 'row', gap: SPACING.sm },
   taskItemWrapper: { marginBottom: 2 },
   taskRow: { flexDirection: 'row', alignItems: 'center' },
   taskActionBtn: { paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },

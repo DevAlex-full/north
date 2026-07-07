@@ -109,6 +109,17 @@ export interface CommercialMetrics {
   expectedRevenue: number
   receivedRevenue: number
   pendingRevenue: number
+  /** Fase 4.4D — soma de `ProjectFinance.spent` de todos os projetos de cliente. */
+  totalSpent: number
+  /**
+   * Fase 4.4D — lucro estimado com base no valor total combinado dos
+   * projetos de cliente menos os custos já incorridos
+   * (`expectedRevenue - totalSpent`). É uma projeção "se tudo for pago",
+   * diferente do lucro já realizado por projeto (`ProjectFinance.profit`,
+   * que é `received - spent`) — as duas leituras coexistem de propósito:
+   * uma é o retrato de hoje, a outra é a expectativa do contrato inteiro.
+   */
+  estimatedProfit: number
   conversionRate: number
   closingRate: number
   upcomingContacts: Lead[]
@@ -161,6 +172,14 @@ export function getCommercialMetrics(
     0
   )
 
+  // Fase 4.4D — Custos e lucro estimado, mesma fonte (financeByProjectId,
+  // já derivado de FinancialTransaction) e mesmo padrão de soma usado acima.
+  const totalSpent = clientProjects.reduce(
+    (sum, p) => sum + (financeByProjectId[p.id]?.spent ?? 0),
+    0
+  )
+  const estimatedProfit = expectedRevenue - totalSpent
+
   const conversionRate = totalLeads > 0 ? (activeClients / totalLeads) * 100 : 0
   const closedOrActiveCount = leads.filter((l) => CLOSED_COLUMNS.includes(getPipelineColumn(l.status))).length
   const closingRate = totalLeads > 0 ? (closedOrActiveCount / totalLeads) * 100 : 0
@@ -191,6 +210,8 @@ export function getCommercialMetrics(
     expectedRevenue,
     receivedRevenue,
     pendingRevenue,
+    totalSpent,
+    estimatedProfit,
     conversionRate,
     closingRate,
     upcomingContacts,

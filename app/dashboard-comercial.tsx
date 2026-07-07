@@ -79,7 +79,14 @@ export default function DashboardComercialScreen() {
           <FinancialRow label="Valor fechado" value={metrics.valueClosed} color={COLORS.success} />
           <FinancialRow label="Receita prevista" value={metrics.expectedRevenue} color={COLORS.primary} />
           <FinancialRow label="Receita recebida" value={metrics.receivedRevenue} color={COLORS.success} />
-          <FinancialRow label="Pendente" value={metrics.pendingRevenue} color={COLORS.warning} last />
+          <FinancialRow label="Pendente" value={metrics.pendingRevenue} color={COLORS.warning} />
+          <FinancialRow label="Custos" value={metrics.totalSpent} color={COLORS.danger} />
+          <FinancialRow
+            label="Lucro estimado"
+            value={metrics.estimatedProfit}
+            color={metrics.estimatedProfit >= 0 ? COLORS.success : COLORS.danger}
+            last
+          />
         </Card>
 
         {/* Fase 4.4C — Resumo de Follow-ups em 3 baldes (useFollowUps + groupFollowUpsByUrgency) */}
