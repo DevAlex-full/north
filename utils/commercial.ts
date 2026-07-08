@@ -1,5 +1,5 @@
 import type { Lead, LeadStatus } from '../types/lead.types'
-import type { Project, ProjectFinance } from '../types/project.types'
+import type { Project, ProjectFinance, ProjectTask } from '../types/project.types'
 import { startOfDaySP, endOfDaySP, getTodayString } from './date'
 
 /** As 7 colunas do Pipeline pedidas na Fase 4.2A, nesta ordem fixa. */
@@ -124,10 +124,41 @@ export interface CommercialMetrics {
   closingRate: number
   upcomingContacts: Lead[]
   staleClients: Lead[]
+  /** Fase 4.5 — leads ainda "em jogo" no funil (não fechados, não cliente, não perdidos). */
+  openLeads: number
+  /** Fase 4.5 — projetos de cliente fora dos status terminais (DELIVERED/CANCELLED). */
+  activeProjects: number
 }
 
 const NEGOTIATION_COLUMNS: PipelineColumnKey[] = ['PROPOSAL', 'NEGOTIATION']
 const CLOSED_COLUMNS: PipelineColumnKey[] = ['CLOSED', 'ACTIVE_CLIENT']
+
+/**
+ * Fase 4.5 — status de lead considerados "fora do funil ativo": já
+ * fechado, já virou cliente, ou perdido. Extraído para constante
+ * compartilhada porque tanto `staleClients` (dentro de
+ * getCommercialMetrics) quanto `openLeads` (novo nesta fase) e
+ * `getOperationalHealth` precisam exatamente do mesmo critério — evita
+ * duas definições divergentes do "mesmo" conceito.
+ */
+const CLOSED_LEAD_STATUSES: LeadStatus[] = ['CLOSED', 'ACTIVE_CLIENT', 'LOST']
+
+/**
+ * Fase 4.5 — Leads ainda no funil (não fechados/cliente/perdidos) sem
+ * contato registrado nos últimos 7 dias, ou nunca contatados. Extraído de
+ * dentro de `getCommercialMetrics` para função própria porque
+ * `getOperationalHealth` (Fase 4.5) também precisa exatamente do mesmo
+ * cálculo — uma função, dois usos, sem recalcular a regra duas vezes.
+ */
+function computeStaleLeads(leads: Lead[]): Lead[] {
+  const now = new Date()
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  return leads.filter((l) => {
+    if (CLOSED_LEAD_STATUSES.includes(l.status)) return false
+    if (!l.lastContactAt) return true
+    return new Date(l.lastContactAt) < sevenDaysAgo
+  })
+}
 
 /**
  * Calcula as métricas do Dashboard Comercial inteiramente a partir de
@@ -190,16 +221,13 @@ export function getCommercialMetrics(
     .filter((l) => l.followUpAt && new Date(l.followUpAt) >= now && new Date(l.followUpAt) <= in7Days)
     .sort((a, b) => new Date(a.followUpAt as string).getTime() - new Date(b.followUpAt as string).getTime())
 
-  // "Sem retorno": leads ainda ativos no funil (não fechados, não cliente,
-  // não perdidos) sem nenhum contato registrado há mais de 7 dias — ou
-  // nunca contatados.
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const inactiveStatuses: LeadStatus[] = ['CLOSED', 'ACTIVE_CLIENT', 'LOST']
-  const staleClients = leads.filter((l) => {
-    if (inactiveStatuses.includes(l.status)) return false
-    if (!l.lastContactAt) return true
-    return new Date(l.lastContactAt) < sevenDaysAgo
-  })
+  const staleClients = computeStaleLeads(leads)
+
+  // Fase 4.5 — Leads em aberto (ainda no funil) e projetos comerciais ativos.
+  const openLeads = leads.filter((l) => !CLOSED_LEAD_STATUSES.includes(l.status)).length
+  const activeProjects = clientProjects.filter(
+    (p) => !COMPLETED_CLIENT_PROJECT_STATUSES.includes(p.clientStatus ?? '')
+  ).length
 
   return {
     totalLeads,
@@ -216,6 +244,8 @@ export function getCommercialMetrics(
     closingRate,
     upcomingContacts,
     staleClients,
+    openLeads,
+    activeProjects,
   }
 }
 
@@ -333,4 +363,171 @@ export function groupFollowUpsByUrgency(leads: Lead[]): FollowUpGroups {
     .sort(byDateAsc)
 
   return { overdue, today, upcoming }
+}
+
+/** Status de projeto considerados "concluídos"/terminais (Fase 4.2D, reaproveitado na 4.5). */
+const TERMINAL_PROJECT_STATUSES = COMPLETED_CLIENT_PROJECT_STATUSES
+
+const DEADLINE_WARNING_DAYS = 7
+const STALLED_DAYS_THRESHOLD = 14
+/** Fase 4.5 — horizonte da lista/contador de "Entregas próximas" (mais largo que o alerta de "prazo próximo" da Saúde da Operação). */
+const UPCOMING_DELIVERY_DAYS = 14
+
+/** Indicadores de saúde da operação (Fase 4.5 — Dashboard Operacional). */
+export interface OperationalHealth {
+  /** Projetos de cliente ativos sem `nextAction` preenchido. */
+  projectsWithoutNextAction: Project[]
+  /** Clientes ativos (`status === 'ACTIVE_CLIENT'`) sem `followUpAt` agendado. */
+  clientsWithoutFollowUp: Lead[]
+  /** Projetos ativos com `deadline` dentro dos próximos `DEADLINE_WARNING_DAYS` dias. */
+  projectsWithNearDeadline: Project[]
+  /** Projetos ativos sem nenhuma atualização (`updatedAt`) há mais de `STALLED_DAYS_THRESHOLD` dias. */
+  stalledProjects: Project[]
+  /** Leads sem retorno — mesmo critério de `staleClients` em getCommercialMetrics. */
+  staleLeads: Lead[]
+  /** Total de subtarefas pendentes em todos os projetos (pessoais + cliente). */
+  pendingSubtasksCount: number
+}
+
+/**
+ * Fase 4.5 — Calcula os 6 indicadores de "saúde da operação" pedidos,
+ * inteiramente a partir de Lead[]/Project[] já carregados pelas stores —
+ * nenhuma chamada nova, nenhum dado novo. `projectsWithNearDeadline` e
+ * `stalledProjects` só consideram projetos de cliente fora de status
+ * terminais (DELIVERED/CANCELLED): um projeto já entregue não é "atrasado"
+ * nem "parado", é só um projeto encerrado.
+ */
+export function getOperationalHealth(leads: Lead[], projects: Project[]): OperationalHealth {
+  const now = new Date()
+  const deadlineLimit = new Date(now.getTime() + DEADLINE_WARNING_DAYS * 24 * 60 * 60 * 1000)
+  const stalledLimit = new Date(now.getTime() - STALLED_DAYS_THRESHOLD * 24 * 60 * 60 * 1000)
+
+  const activeClientProjects = projects.filter(
+    (p) => p.kind === 'CLIENT' && !TERMINAL_PROJECT_STATUSES.includes(p.clientStatus ?? '')
+  )
+
+  const projectsWithoutNextAction = activeClientProjects.filter((p) => !p.nextAction)
+
+  const clientsWithoutFollowUp = leads.filter((l) => l.status === 'ACTIVE_CLIENT' && !l.followUpAt)
+
+  const projectsWithNearDeadline = activeClientProjects
+    .filter((p) => p.deadline && new Date(p.deadline) >= now && new Date(p.deadline) <= deadlineLimit)
+    .sort((a, b) => new Date(a.deadline as string).getTime() - new Date(b.deadline as string).getTime())
+
+  const stalledProjects = activeClientProjects
+    .filter((p) => new Date(p.updatedAt) < stalledLimit)
+    .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime())
+
+  const staleLeads = computeStaleLeads(leads)
+
+  const pendingSubtasksCount = getPendingSubtasksSummary(projects).length
+
+  return {
+    projectsWithoutNextAction,
+    clientsWithoutFollowUp,
+    projectsWithNearDeadline,
+    stalledProjects,
+    staleLeads,
+    pendingSubtasksCount,
+  }
+}
+
+/** Uma subtarefa pendente, achatada com o contexto da tarefa/projeto (Fase 4.5). */
+export interface PendingSubtaskItem {
+  subtaskId: string
+  subtaskTitle: string
+  taskTitle: string
+  taskPriority: number
+  projectId: string
+  projectName: string
+}
+
+/**
+ * Fase 4.5 — Lista achatada de todas as subtarefas pendentes (em
+ * projetos pessoais e de cliente), ordenada por prioridade da tarefa-mãe
+ * (1 = alta primeiro). Usada tanto para o contador de "Saúde da Operação"
+ * (`pendingSubtasksCount`) quanto para a lista de "Prioridades do Dia" —
+ * uma função só, para não percorrer `projectTasks`/`subtasks` duas vezes
+ * com regras potencialmente divergentes.
+ */
+export function getPendingSubtasksSummary(projects: Project[]): PendingSubtaskItem[] {
+  const items: PendingSubtaskItem[] = []
+  projects.forEach((p) => {
+    ;(p.projectTasks ?? []).forEach((t: ProjectTask) => {
+      ;(t.subtasks ?? [])
+        .filter((s) => s.status === 'PENDING')
+        .forEach((s) => {
+          items.push({
+            subtaskId: s.id,
+            subtaskTitle: s.title,
+            taskTitle: t.title,
+            taskPriority: t.priority,
+            projectId: p.id,
+            projectName: p.name,
+          })
+        })
+    })
+  })
+  return items.sort((a, b) => a.taskPriority - b.taskPriority)
+}
+
+/**
+ * Fase 4.5 — Projetos de cliente ativos que já têm uma `nextAction`
+ * definida, ordenados por prazo (sem prazo vai por último). Base da seção
+ * "Projetos com próxima ação" em Prioridades do Dia.
+ */
+export function getProjectsWithNextAction(projects: Project[]): Project[] {
+  return projects
+    .filter(
+      (p) => p.kind === 'CLIENT' && !TERMINAL_PROJECT_STATUSES.includes(p.clientStatus ?? '') && !!p.nextAction
+    )
+    .sort((a, b) => {
+      if (!a.deadline && !b.deadline) return 0
+      if (!a.deadline) return 1
+      if (!b.deadline) return -1
+      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime()
+    })
+}
+
+/** Progresso de tarefas de um projeto (Fase 4.5). */
+export interface ProjectTaskProgress {
+  done: number
+  total: number
+  percent: number
+}
+
+/**
+ * Fase 4.5 — Progresso de um projeto pelo mesmo critério já usado em
+ * app/projetos.tsx (`isTaskDone`): uma tarefa com subtarefas é
+ * considerada concluída quando todas as subtarefas estão DONE; sem
+ * subtarefas, usa o `task.status` da própria tarefa. Replicado aqui (em
+ * vez de importado de projetos.tsx, que não exporta essa função) para não
+ * precisar tocar num arquivo já validado nas Fases 4.3/4.4 só por causa
+ * de um refactor de baixo risco.
+ */
+export function getProjectTaskProgress(project: Project): ProjectTaskProgress {
+  const tasks = project.projectTasks ?? []
+  const isDone = (t: ProjectTask) => {
+    const subtasks = t.subtasks ?? []
+    return subtasks.length > 0 ? subtasks.every((s) => s.status === 'DONE') : t.status === 'DONE'
+  }
+  const done = tasks.filter(isDone).length
+  const total = tasks.length
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0
+  return { done, total, percent }
+}
+
+/**
+ * Fase 4.5 — Projetos de cliente ativos com `deadline` dentro dos
+ * próximos `days` dias (padrão: 14). Base tanto do card "Entregas
+ * próximas" (visão executiva) quanto da seção "Próximas Entregas"
+ * (listagem detalhada) — mesma função, dois usos.
+ */
+export function getUpcomingDeliveries(projects: Project[], days: number = UPCOMING_DELIVERY_DAYS): Project[] {
+  const now = new Date()
+  const limit = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
+  return projects
+    .filter((p) => p.kind === 'CLIENT' && !TERMINAL_PROJECT_STATUSES.includes(p.clientStatus ?? ''))
+    .filter((p) => p.deadline && new Date(p.deadline) >= now && new Date(p.deadline) <= limit)
+    .sort((a, b) => new Date(a.deadline as string).getTime() - new Date(b.deadline as string).getTime())
 }
