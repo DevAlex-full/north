@@ -9,6 +9,7 @@ const COMMERCIAL_ITEMS = [
   { icon: '📊', label: 'Pipeline', subtitle: 'Funil de vendas e leads', route: '/pipeline' },
   { icon: '📈', label: 'Dashboard Comercial', subtitle: 'Métricas e receita', route: '/dashboard-comercial' },
   { icon: '🏗️', label: 'Projetos', subtitle: 'Pessoais e de clientes', route: '/projetos' },
+  { icon: '🔔', label: 'Central de Pendências', subtitle: 'Follow-ups, prazos e tarefas', route: '/notificacoes' },
 ]
 
 const MENU_ITEMS = [

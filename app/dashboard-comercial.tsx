@@ -21,6 +21,7 @@ import {
   getProjectTaskProgress,
   getUpcomingDeliveries,
 } from '../utils/commercial'
+import { buildPendencies, countPendenciesByPriority } from '../utils/notifications'
 import type { Project } from '../types/project.types'
 
 /** Janela padrão (dias) para follow-ups pendentes — mesmo padrão do backend. */
@@ -65,6 +66,10 @@ export default function DashboardComercialScreen() {
   const projectsWithNextAction = getProjectsWithNextAction(projects)
   const upcomingDeliveries = getUpcomingDeliveries(projects)
 
+  // Fase 5.1 — Pendências consolidadas (mesmos dados já carregados acima; nenhuma chamada nova)
+  const pendencies = buildPendencies({ leads, projects, followUps })
+  const pendencyCounts = countPendenciesByPriority(pendencies)
+
   const closingRateLabel = `${metrics.closingRate.toFixed(0)}%`
   const conversionRateLabel = `${metrics.conversionRate.toFixed(0)}%`
 
@@ -105,6 +110,32 @@ export default function DashboardComercialScreen() {
           <MetricCard label="Follow-ups Vencidos" value={String(followUpGroups.overdue.length)} color={COLORS.danger} />
           <MetricCard label="Entregas Próximas" value={String(upcomingDeliveries.length)} color={COLORS.warning} />
         </View>
+
+        {/* Fase 5.1 — Central de Pendências: card pequeno, resume por prioridade e leva à tela dedicada */}
+        <Text style={styles.sectionTitle}>🔔 Pendências</Text>
+        <TouchableOpacity onPress={() => router.push('/notificacoes')} activeOpacity={0.85}>
+          <Card>
+            <View style={styles.pendencySummaryRow}>
+              <View style={styles.pendencySummaryItem}>
+                <Text style={[styles.pendencySummaryValue, { color: COLORS.danger }]}>{pendencyCounts.CRITICO}</Text>
+                <Text style={styles.pendencySummaryLabel}>Críticas</Text>
+              </View>
+              <View style={styles.pendencySummaryItem}>
+                <Text style={[styles.pendencySummaryValue, { color: COLORS.warning }]}>{pendencyCounts.ALTO}</Text>
+                <Text style={styles.pendencySummaryLabel}>Altas</Text>
+              </View>
+              <View style={styles.pendencySummaryItem}>
+                <Text style={[styles.pendencySummaryValue, { color: COLORS.primary }]}>{pendencyCounts.MEDIO}</Text>
+                <Text style={styles.pendencySummaryLabel}>Médias</Text>
+              </View>
+              <View style={styles.pendencySummaryItem}>
+                <Text style={[styles.pendencySummaryValue, { color: COLORS.success }]}>{pendencyCounts.BAIXO}</Text>
+                <Text style={styles.pendencySummaryLabel}>Baixas</Text>
+              </View>
+            </View>
+            <Text style={styles.pendencyViewAll}>Ver Central de Pendências →</Text>
+          </Card>
+        </TouchableOpacity>
 
         {/* Fase 4.5 — Saúde da Operação: 6 indicadores de atenção, em glance */}
         <Text style={styles.sectionTitle}>🏥 Saúde da Operação</Text>
@@ -479,4 +510,10 @@ const styles = StyleSheet.create({
   // Fase 4.5 — Próximas Entregas
   deliveryRow: { paddingVertical: SPACING.sm, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   deliveryMeta: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 },
+  // Fase 5.1 — card de Pendências
+  pendencySummaryRow: { flexDirection: 'row', justifyContent: 'space-around', paddingBottom: SPACING.sm, marginBottom: SPACING.sm, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  pendencySummaryItem: { alignItems: 'center' },
+  pendencySummaryValue: { fontSize: FONT_SIZE.xxl, fontWeight: '900' },
+  pendencySummaryLabel: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 },
+  pendencyViewAll: { color: COLORS.primary, fontSize: FONT_SIZE.xs, fontWeight: '700', textAlign: 'center' },
 })
