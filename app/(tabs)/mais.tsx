@@ -6,6 +6,7 @@ import { Card } from '../../components/ui/Card'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
 
 const COMMERCIAL_ITEMS = [
+  { icon: '🧭', label: 'Painel Diário', subtitle: 'Visão única do que fazer hoje', route: '/painel-diario' },
   { icon: '📊', label: 'Pipeline', subtitle: 'Funil de vendas e leads', route: '/pipeline' },
   { icon: '📈', label: 'Dashboard Comercial', subtitle: 'Métricas e receita', route: '/dashboard-comercial' },
   { icon: '🏗️', label: 'Projetos', subtitle: 'Pessoais e de clientes', route: '/projetos' },

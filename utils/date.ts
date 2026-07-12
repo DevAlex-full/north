@@ -288,3 +288,13 @@ export function getGreeting(): string {
 export function getDayOfWeek(): number {
   return getDayOfWeekSP()
 }
+
+/**
+ * Fase 5.3 — Hora e minuto atuais, segundo o horário de São Paulo. Reusa
+ * `getPartsInSP` (já usado por todo este módulo) em vez de `new
+ * Date().getHours()`, que refletiria o fuso do dispositivo, não o de SP.
+ */
+export function getCurrentTimeSP(): { hour: number; minute: number } {
+  const { hour, minute } = getPartsInSP(new Date())
+  return { hour, minute }
+}
