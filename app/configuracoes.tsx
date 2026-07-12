@@ -6,6 +6,7 @@ import { authService } from '../services/auth.service'
 import { useAuthStore } from '../stores/auth.store'
 import { useUpdateStore } from '../stores/update.store'
 import { syncNotifications, NotificationSettings } from '../hooks/useNotifications'
+import { usePendencyNotifications } from '../hooks/usePendencyNotifications'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -39,6 +40,15 @@ export default function ConfiguracoesScreen() {
   const [notifIndrive, setNotifIndrive] = useState(true)
   const [notifClosing, setNotifClosing] = useState(true)
   const [times, setTimes] = useState(DEFAULT_TIMES)
+
+  // Fase 5.2D — Pendências Comerciais (preferências locais, ver usePendencyNotifications)
+  const { loadPreferences, updatePreferences } = usePendencyNotifications()
+  const [crmFollowUps, setCrmFollowUps] = useState(true)
+  const [crmProjects, setCrmProjects] = useState(true)
+  const [crmCritical, setCrmCritical] = useState(true)
+  const [crmDailyReminder, setCrmDailyReminder] = useState(false)
+  const [crmDailyReminderTime, setCrmDailyReminderTime] = useState('08:00')
+  const [savingCrmNotif, setSavingCrmNotif] = useState(false)
 
   const [showLogoutModal, setShowLogoutModal] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -101,6 +111,14 @@ export default function ConfiguracoesScreen() {
         }
       }
     } catch {}
+
+    // Fase 5.2D — Pendências Comerciais: preferências locais (não vêm do /auth/me)
+    const crmPrefs = await loadPreferences()
+    setCrmFollowUps(crmPrefs.followUpsEnabled)
+    setCrmProjects(crmPrefs.projectsEnabled)
+    setCrmCritical(crmPrefs.criticalPendenciesEnabled)
+    setCrmDailyReminder(crmPrefs.dailyReminderEnabled)
+    setCrmDailyReminderTime(crmPrefs.dailyReminderTime)
   }
 
   useFocusEffect(useCallback(() => { load() }, []))
@@ -161,6 +179,32 @@ export default function ConfiguracoesScreen() {
       Alert.alert('Erro', 'Não foi possível salvar as notificações')
     } finally {
       setSavingNotif(false)
+    }
+  }
+
+  /**
+   * Fase 5.2D — Salva as preferências de Pendências Comerciais. Diferente
+   * de `saveNotifications` (que persiste no backend via
+   * authService.updateNotifications), estas 4 preferências ficam só
+   * localmente (ver comentário em CrmNotificationPreferences) —
+   * `updatePreferences` já cuida de persistir e, se o lembrete diário
+   * estiver ativo, agendá-lo/atualizá-lo.
+   */
+  const saveCrmNotifications = async () => {
+    setSavingCrmNotif(true)
+    try {
+      await updatePreferences({
+        followUpsEnabled: crmFollowUps,
+        projectsEnabled: crmProjects,
+        criticalPendenciesEnabled: crmCritical,
+        dailyReminderEnabled: crmDailyReminder,
+        dailyReminderTime: crmDailyReminderTime,
+      })
+      Alert.alert('✅', 'Preferências de pendências salvas neste dispositivo.')
+    } catch {
+      Alert.alert('Erro', 'Não foi possível salvar as preferências de pendências')
+    } finally {
+      setSavingCrmNotif(false)
     }
   }
 
@@ -281,6 +325,36 @@ export default function ConfiguracoesScreen() {
           </View>
         </Card>
 
+        {/* Fase 5.2D — Pendências Comerciais (preferências locais, ver usePendencyNotifications) */}
+        <SectionTitle label="🔔 Pendências Comerciais" />
+        <Card>
+          <Text style={styles.crmHint}>
+            Alertas derivados da Central de Pendências (follow-ups, prazos, subtarefas). Salvos apenas
+            neste aparelho.
+          </Text>
+          <SettingRow label="Follow-ups (atrasados, hoje, próximos)" value={crmFollowUps} onValueChange={setCrmFollowUps} />
+          <SettingRow label="Projetos e entregas" value={crmProjects} onValueChange={setCrmProjects} />
+          <SettingRow label="Pendências críticas" value={crmCritical} onValueChange={setCrmCritical} />
+          <View style={styles.divider} />
+          <SettingRow label="Lembrete diário" value={crmDailyReminder} onValueChange={setCrmDailyReminder} />
+          {crmDailyReminder && (
+            <Input
+              label="Horário do lembrete"
+              value={crmDailyReminderTime}
+              onChangeText={setCrmDailyReminderTime}
+              placeholder="08:00"
+            />
+          )}
+          <View style={{ marginTop: SPACING.md }}>
+            <Button
+              title={savingCrmNotif ? 'Salvando...' : 'Salvar preferências de pendências'}
+              onPress={saveCrmNotifications}
+              loading={savingCrmNotif}
+              size="md"
+            />
+          </View>
+        </Card>
+
         {/* Atualizações */}
         <SectionTitle label="🔄 Atualizações" />
         <Card>
@@ -367,6 +441,7 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
   },
   switchLabel: { color: COLORS.text, fontSize: FONT_SIZE.md, flex: 1 },
+  crmHint: { color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginBottom: SPACING.sm, lineHeight: 17 },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: SPACING.sm },
   previewRow: {
     flexDirection: 'row',

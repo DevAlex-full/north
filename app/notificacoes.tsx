@@ -1,16 +1,19 @@
 import React, { useState, useCallback } from 'react'
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native'
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useLeadStore } from '../stores/lead.store'
 import { useProjectStore } from '../stores/project.store'
 import { useFollowUps } from '../hooks/useFollowUps'
+import { usePendencyNotifications } from '../hooks/usePendencyNotifications'
 import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../constants/theme'
 import { formatDateShort } from '../utils/date'
 import {
   buildPendencies,
   groupPendenciesByPriority,
+  isPendencyNotifiable,
   PRIORITY_ORDER,
   type PendencyItem,
   type PendencyType,
@@ -25,6 +28,7 @@ const PENDENCY_ICONS: Record<PendencyType, string> = {
   FOLLOW_UP_TODAY: '📅',
   PROJECT_NO_NEXT_ACTION: '⚡',
   PROJECT_NEAR_DEADLINE: '⏳',
+  PROJECT_OVERDUE: '🚨',
   PENDING_SUBTASK: '☑️',
   LEAD_STALE: '📉',
   UPCOMING_DELIVERY: '📦',
@@ -42,20 +46,52 @@ export default function NotificacoesScreen() {
   const { leads, fetchLeads } = useLeadStore()
   const { projects, fetchProjects } = useProjectStore()
   const { followUps, reload: reloadFollowUps } = useFollowUps(FOLLOW_UP_WINDOW_DAYS)
+  const { preferences, loadPreferences, sync, isSyncing } = usePendencyNotifications()
 
   const [refreshing, setRefreshing] = useState(false)
 
   const load = async () => {
-    await Promise.all([fetchLeads(), fetchProjects()])
+    await Promise.all([fetchLeads(), fetchProjects(), loadPreferences()])
     setRefreshing(false)
   }
 
-  useFocusEffect(useCallback(() => { load() }, []))
+  // Fase 5.2 — Recalcula pendências e sincroniza alertas locais sempre que
+  // a tela ganha foco. Não é "spam a cada abertura do app": esta é uma
+  // visita deliberada à Central de Pendências, e o próprio `sync` só
+  // agenda/atualiza categorias cujo estado realmente mudou (ver regra
+  // 5.2C em usePendencyNotifications).
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false
+      ;(async () => {
+        await load()
+        if (cancelled) return
+        const pendencyInput = { leads, projects, followUps }
+        sync(pendencyInput).catch(() => {})
+      })()
+      return () => { cancelled = true }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  )
 
   const pendencies = buildPendencies({ leads, projects, followUps })
   const grouped = groupPendenciesByPriority(pendencies)
 
   const onRefresh = () => { setRefreshing(true); load(); reloadFollowUps() }
+
+  const onUpdateAlerts = async () => {
+    const result = await sync({ leads, projects, followUps })
+    if (result.expoGo) {
+      Alert.alert('Expo Go', 'Notificações locais não funcionam no Expo Go. Instale o APK para recebê-las.')
+    } else if (!result.granted) {
+      Alert.alert(
+        'Permissão necessária',
+        'Autorize notificações para o North nas configurações do sistema Android para receber os alertas.'
+      )
+    } else {
+      Alert.alert('✅', 'Alertas atualizados com base nas suas pendências atuais.')
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -74,6 +110,15 @@ export default function NotificacoesScreen() {
         contentContainerStyle={{ padding: SPACING.md, paddingBottom: SPACING.xxl }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
       >
+        <Button
+          title={isSyncing ? 'Atualizando...' : '🔄 Atualizar alertas'}
+          onPress={onUpdateAlerts}
+          loading={isSyncing}
+          variant="secondary"
+          size="md"
+          style={{ marginBottom: SPACING.md }}
+        />
+
         {pendencies.length === 0 ? (
           <EmptyState icon="🎉" title="Tudo em dia!" subtitle="Nenhuma pendência no momento." />
         ) : (
@@ -91,7 +136,12 @@ export default function NotificacoesScreen() {
                 </View>
                 <Card>
                   {items.map((item, index) => (
-                    <PendencyRow key={item.id} item={item} last={index === items.length - 1} />
+                    <PendencyRow
+                      key={item.id}
+                      item={item}
+                      notifiable={isPendencyNotifiable(item, preferences)}
+                      last={index === items.length - 1}
+                    />
                   ))}
                 </Card>
               </View>
@@ -103,11 +153,21 @@ export default function NotificacoesScreen() {
   )
 }
 
-function PendencyRow({ item, last }: { item: PendencyItem; last?: boolean }) {
+function PendencyRow({
+  item,
+  notifiable,
+  last,
+}: {
+  item: PendencyItem
+  notifiable: boolean
+  last?: boolean
+}) {
   return (
     <View style={[styles.pendencyRow, !last && { borderBottomWidth: 1, borderBottomColor: COLORS.border }]}>
       <View style={{ flex: 1 }}>
-        <Text style={styles.pendencyTitle}>{PENDENCY_ICONS[item.type]} {item.title}</Text>
+        <Text style={styles.pendencyTitle}>
+          {PENDENCY_ICONS[item.type]} {item.title}{notifiable ? ' 🔔' : ''}
+        </Text>
         {(item.project || item.client) && (
           <Text style={styles.pendencySub}>
             {item.project ? `🏗️ ${item.project}` : ''}

@@ -438,6 +438,13 @@ export interface PendingSubtaskItem {
   subtaskTitle: string
   taskTitle: string
   taskPriority: number
+  /**
+   * Fase 5.2 — `dueDate` da TAREFA-mãe (`ProjectTask.dueDate`), não da
+   * subtarefa: `ProjectSubTask` não tem campo de prazo próprio na
+   * estrutura atual. É a única data disponível para aproximar "subtarefa
+   * com prazo próximo" (usada pela Central de Notificações).
+   */
+  taskDueDate: string | null
   projectId: string
   projectName: string
 }
@@ -462,6 +469,7 @@ export function getPendingSubtasksSummary(projects: Project[]): PendingSubtaskIt
             subtaskTitle: s.title,
             taskTitle: t.title,
             taskPriority: t.priority,
+            taskDueDate: t.dueDate,
             projectId: p.id,
             projectName: p.name,
           })
@@ -529,5 +537,20 @@ export function getUpcomingDeliveries(projects: Project[], days: number = UPCOMI
   return projects
     .filter((p) => p.kind === 'CLIENT' && !TERMINAL_PROJECT_STATUSES.includes(p.clientStatus ?? ''))
     .filter((p) => p.deadline && new Date(p.deadline) >= now && new Date(p.deadline) <= limit)
+    .sort((a, b) => new Date(a.deadline as string).getTime() - new Date(b.deadline as string).getTime())
+}
+
+/**
+ * Fase 5.2 — Projetos de cliente ativos cujo `deadline` já passou (prazo
+ * vencido). Distinto de `getUpcomingDeliveries`/`getOperationalHealth`
+ * (que só olham para prazos futuros, dentro de uma janela) — nenhuma
+ * função existente cobria "o prazo já passou", que é um cenário
+ * explicitamente pedido pela Central de Notificações.
+ */
+export function getOverdueProjects(projects: Project[]): Project[] {
+  const now = new Date()
+  return projects
+    .filter((p) => p.kind === 'CLIENT' && !TERMINAL_PROJECT_STATUSES.includes(p.clientStatus ?? ''))
+    .filter((p) => p.deadline && new Date(p.deadline) < now)
     .sort((a, b) => new Date(a.deadline as string).getTime() - new Date(b.deadline as string).getTime())
 }

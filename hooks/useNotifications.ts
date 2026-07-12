@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
 
-const isExpoGo = Constants.appOwnership === 'expo'
+export const isExpoGo = Constants.appOwnership === 'expo'
 
 export interface NotificationSettings {
   morningEnabled: boolean
@@ -60,36 +60,107 @@ export async function cancelAllNotifications(): Promise<void> {
   await Notifications.cancelAllScheduledNotificationsAsync()
 }
 
+/**
+ * Fase 5.2 — Cancela apenas as notificações agendadas cujo identificador
+ * começa com `prefix`, em vez de derrubar TODAS as notificações do
+ * dispositivo. Necessário porque a Central de Pendências (Fase 5.2) passou
+ * a agendar notificações próprias (prefixo `crm-`) que não podem ser
+ * apagadas sempre que o usuário resalva os lembretes diários de rotina
+ * (prefixo `daily-`, veja `scheduleNotifications` abaixo) — e vice-versa.
+ */
+export async function cancelNotificationsByPrefix(prefix: string): Promise<void> {
+  const Notifications = await getNotifications()
+  if (!Notifications) return
+
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync()
+  await Promise.all(
+    scheduled
+      .filter((n: { identifier: string }) => n.identifier.startsWith(prefix))
+      .map((n: { identifier: string }) => Notifications.cancelScheduledNotificationAsync(n.identifier))
+  )
+}
+
+/**
+ * Fase 5.2 — Agenda (ou substitui, se já existir o mesmo `identifier`) uma
+ * notificação de disparo imediato. Usada pela Central de Pendências para
+ * alertas derivados do estado atual (follow-ups, prazos, subtarefas) —
+ * diferente dos lembretes diários de rotina, que são recorrentes por
+ * horário. Retorna silenciosamente (`void`) em Expo Go ou sem permissão,
+ * seguindo o mesmo guard já usado no resto deste arquivo.
+ */
+export async function scheduleImmediateNotification(identifier: string, title: string, body: string): Promise<void> {
+  const Notifications = await getNotifications()
+  if (!Notifications) return
+
+  await Notifications.scheduleNotificationAsync({
+    identifier,
+    content: { title, body, sound: true },
+    trigger: null,
+  })
+}
+
+/** Fase 5.2 — Cancela uma única notificação agendada pelo `identifier`. */
+export async function cancelNotificationById(identifier: string): Promise<void> {
+  const Notifications = await getNotifications()
+  if (!Notifications) return
+
+  await Notifications.cancelScheduledNotificationAsync(identifier)
+}
+
+/**
+ * Fase 5.2 — Agenda o lembrete diário da Central de Pendências, num
+ * horário recorrente escolhido pelo usuário em Configurações. Usa
+ * identificador fixo (`crm-daily-reminder`): chamar de novo substitui o
+ * agendamento anterior — não precisa cancelar manualmente antes.
+ */
+export async function scheduleDailyPendencyReminder(time: string, title: string, body: string): Promise<void> {
+  const Notifications = await getNotifications()
+  if (!Notifications) return
+
+  const { hour, minute } = parseTime(time)
+  await Notifications.scheduleNotificationAsync({
+    identifier: 'crm-daily-reminder',
+    content: { title, body, sound: true },
+    trigger: { hour, minute, repeats: true } as any,
+  })
+}
+
 export async function scheduleNotifications(settings: NotificationSettings): Promise<void> {
   const Notifications = await getNotifications()
   if (!Notifications) return
 
-  await Notifications.cancelAllScheduledNotificationsAsync()
+  // Fase 5.2 — Antes cancelava TUDO (cancelAllScheduledNotificationsAsync),
+  // o que apagava também os alertas da Central de Pendências (prefixo
+  // `crm-`) sempre que o usuário resalvava esta seção. Agora cancela só os
+  // lembretes de rotina (prefixo `daily-`), que são os únicos que esta
+  // função gerencia.
+  await cancelNotificationsByPrefix('daily-')
 
-  const schedule = (hour: number, minute: number, title: string, body: string) =>
+  const schedule = (hour: number, minute: number, title: string, body: string, identifier: string) =>
     Notifications.scheduleNotificationAsync({
+      identifier,
       content: { title, body, sound: true },
       trigger: { hour, minute, repeats: true } as any,
     })
 
   if (settings.morningEnabled) {
     const { hour, minute } = parseTime(settings.morningTime)
-    await schedule(hour, minute, '🧭 North', 'Hora de programar! Abra seus projetos.')
+    await schedule(hour, minute, '🧭 North', 'Hora de programar! Abra seus projetos.', 'daily-morning')
   }
 
   if (settings.prospectEnabled) {
     const { hour, minute } = parseTime(settings.prospectTime)
-    await schedule(hour, minute, '🎯 Prospecção', 'Hora de buscar clientes. Meta: 10 contatos hoje.')
+    await schedule(hour, minute, '🎯 Prospecção', 'Hora de buscar clientes. Meta: 10 contatos hoje.', 'daily-prospect')
   }
 
   if (settings.indriveEnabled) {
     const { hour, minute } = parseTime(settings.indriveTime)
-    await schedule(hour, minute, '🚗 Indrive', 'Hora de rodar! Meta: R$ 150 líquido hoje.')
+    await schedule(hour, minute, '🚗 Indrive', 'Hora de rodar! Meta: R$ 150 líquido hoje.', 'daily-indrive')
   }
 
   if (settings.closingEnabled) {
     const { hour, minute } = parseTime(settings.closingTime)
-    await schedule(hour, minute, '📊 Fechamento', 'Registre seus ganhos e feche o caixa do dia.')
+    await schedule(hour, minute, '📊 Fechamento', 'Registre seus ganhos e feche o caixa do dia.', 'daily-closing')
   }
 }
 
