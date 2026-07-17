@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native'
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert, ActivityIndicator } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useLeadStore } from '../../stores/lead.store'
 import { useProjectStore } from '../../stores/project.store'
@@ -46,7 +46,7 @@ const ALL_STATUS = [{ label: 'Todos', value: '' }, ...STATUS_OPTIONS]
 
 export default function LeadsScreen() {
   const router = useRouter()
-  const { leads, fetchLeads, createLead, updateLead, deleteLead } = useLeadStore()
+  const { leads, isLoading: leadsLoading, fetchLeads, createLead, updateLead, deleteLead } = useLeadStore()
   const { projects, fetchProjects } = useProjectStore()
   const { activities, isLoading: activitiesLoading, fetchActivities } = useActivityStore()
 
@@ -188,8 +188,15 @@ export default function LeadsScreen() {
         contentContainerStyle={{ padding: SPACING.md, paddingBottom: SPACING.xxl }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load() }} tintColor={COLORS.primary} />}
       >
-        {leads.length === 0
-          ? <EmptyState icon="🎯" title="Nenhum lead cadastrado" subtitle="Registre seus potenciais clientes" onAction={openNew} actionLabel="Adicionar lead" />
+        {leadsLoading && leads.length === 0
+          ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator color={COLORS.primary} size="large" />
+              <Text style={styles.loadingText}>Carregando leads...</Text>
+            </View>
+          )
+          : leads.length === 0
+          ? <EmptyState icon="🎯" title="Nenhum lead cadastrado" subtitle="Registre seus potenciais clientes, ou aguarde a chegada de novos leads do North SDR" onAction={openNew} actionLabel="Adicionar lead" />
           : leads.map(lead => {
             const isActiveClient = lead.status === 'ACTIVE_CLIENT'
             const isExpanded = expanded === lead.id
@@ -203,7 +210,14 @@ export default function LeadsScreen() {
                 <Card style={isActiveClient ? { borderColor: COLORS.success + '55' } : undefined}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.leadName}>{isActiveClient ? '⭐ ' : ''}{lead.name}</Text>
+                      <View style={styles.leadNameRow}>
+                        <Text style={styles.leadName}>{isActiveClient ? '⭐ ' : ''}{lead.name}</Text>
+                        {lead.origin === 'north_sdr' && (
+                          <View style={styles.sdrBadge}>
+                            <Text style={styles.sdrBadgeText}>🤖 SDR</Text>
+                          </View>
+                        )}
+                      </View>
                       {lead.company && <Text style={styles.leadCompany}>🏢 {lead.company}</Text>}
                       {lead.niche && <Text style={styles.leadInfo}>📌 {lead.niche}</Text>}
                       {lead.serviceInterest && <Text style={styles.leadInfo}>💼 {lead.serviceInterest}</Text>}
@@ -374,6 +388,11 @@ const styles = StyleSheet.create({
   filterActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '22' },
   filterText: { color: COLORS.textSecondary, fontSize: FONT_SIZE.xs, fontWeight: '600' },
   leadName: { color: COLORS.text, fontSize: FONT_SIZE.md, fontWeight: '700', marginBottom: 4 },
+  leadNameRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginBottom: 4 },
+  sdrBadge: { backgroundColor: COLORS.primary + '22', borderColor: COLORS.primary + '55', borderWidth: 1, borderRadius: RADIUS.full, paddingHorizontal: 6, paddingVertical: 1, marginBottom: 4 },
+  sdrBadgeText: { color: COLORS.primary, fontSize: 9, fontWeight: '800' },
+  loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, paddingTop: SPACING.xxl },
+  loadingText: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm },
   leadCompany: { color: COLORS.textSecondary, fontSize: FONT_SIZE.sm, marginBottom: 2 },
   leadInfo: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginBottom: 2 },
   quickActions: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: COLORS.border },
