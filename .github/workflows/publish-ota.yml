@@ -1,0 +1,79 @@
+name: Publicar North App OTA
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Mensagem da atualização OTA
+        required: false
+        default: Corrige API de produção do North App
+      branch:
+        description: Branch EAS Update
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: north-ota-${{ github.event.inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  publish-ota:
+    name: Validar e publicar OTA
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      CI: '1'
+      EXPO_PUBLIC_API_URL: https://north-back.onrender.com/api/v1
+
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Configurar Expo e EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Validar Expo
+        run: npx expo-doctor
+
+      - name: Validar TypeScript
+        run: npx tsc --noEmit
+
+      - name: Validar export Android
+        run: npx expo export --platform android --output-dir dist-ci
+
+      - name: Publicar atualização OTA
+        run: >-
+          eas update
+          --branch "${{ github.event.inputs.branch }}"
+          --platform android
+          --message "${{ github.event.inputs.message }}"
+          --non-interactive
+
+      - name: Resumo da publicação
+        if: success()
+        run: |
+          echo "### North App OTA publicada" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch EAS: ${{ github.event.inputs.branch }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: $EXPO_PUBLIC_API_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mensagem: ${{ github.event.inputs.message }}" >> "$GITHUB_STEP_SUMMARY"
