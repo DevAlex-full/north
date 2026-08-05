@@ -14,6 +14,7 @@ import {
   type ProjectTaskProgress,
 } from './commercial'
 import { buildPendencies } from './notifications'
+import { isProjectTaskDone } from './project-task-domain'
 
 /** Fase 5.3 — mesma escala de 4 níveis já usada em `utils/notifications.ts`, para manter a linguagem consistente entre Central de Pendências e Painel Diário. */
 export type DailyPriority = 'CRITICO' | 'ALTO' | 'MEDIO' | 'BAIXO'
@@ -153,7 +154,7 @@ function buildPriorityTasks(tasks: Task[], projects: Project[]): PriorityTaskIte
   // 2) ProjectTask prioritárias (priority=1, não concluídas), de qualquer projeto — pessoal ou de cliente.
   projects.forEach((p) => {
     ;(p.projectTasks ?? [])
-      .filter((pt) => pt.priority === 1 && pt.status !== 'DONE')
+      .filter((pt) => pt.priority === 1 && !isProjectTaskDone(pt))
       .forEach((pt) => {
         const overdue = !!pt.dueDate && toDateStringSP(pt.dueDate) < today
         items.push({

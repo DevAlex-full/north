@@ -3,7 +3,6 @@ import type {
   Project,
   ProjectTask,
   ProjectFinance,
-  ProjectSubTask,
   CreateProjectInput,
   UpdateProjectInput,
   CreateProjectTaskInput,
@@ -44,33 +43,48 @@ export const projectService = {
     await api.delete(`/projects/${projectId}/tasks/${taskId}`)
   },
 
-  // --- Fase 4.3B: Subtarefas ---
+  // --- Fase 4.3B: Subtarefas (Fase 6.1.7: contratos alinhados ao backend consolidado) ---
 
+  /**
+   * O backend (Fase 6.1.6) retorna a `ProjectTask` completa e consolidada
+   * — incluindo `subtasks` — nesta operação, não mais apenas a subtarefa
+   * criada.
+   */
   async createSubTask(
     projectId: string,
     taskId: string,
     data: CreateSubTaskInput
-  ): Promise<ProjectSubTask> {
-    const r = await api.post<ProjectSubTask>(
+  ): Promise<ProjectTask> {
+    const r = await api.post<ProjectTask>(
       `/projects/${projectId}/tasks/${taskId}/subtasks`,
       data
     )
     return r.data
   },
+  /**
+   * O backend (Fase 6.1.6) retorna a `ProjectTask` completa e consolidada
+   * nesta operação, não mais apenas a subtarefa atualizada.
+   */
   async updateSubTask(
     projectId: string,
     taskId: string,
     subId: string,
     data: UpdateSubTaskInput
-  ): Promise<ProjectSubTask> {
-    const r = await api.put<ProjectSubTask>(
+  ): Promise<ProjectTask> {
+    const r = await api.put<ProjectTask>(
       `/projects/${projectId}/tasks/${taskId}/subtasks/${subId}`,
       data
     )
     return r.data
   },
-  async deleteSubTask(projectId: string, taskId: string, subId: string): Promise<void> {
-    await api.delete(`/projects/${projectId}/tasks/${taskId}/subtasks/${subId}`)
+  /**
+   * O backend (Fase 6.1.6) alterou este endpoint de `204 No Content` para
+   * `200 OK` com a `ProjectTask` consolidada após a exclusão e o
+   * recálculo de status.
+   */
+  async deleteSubTask(projectId: string, taskId: string, subId: string): Promise<ProjectTask> {
+    const r = await api.delete<ProjectTask>(`/projects/${projectId}/tasks/${taskId}/subtasks/${subId}`)
+    return r.data
   },
 
   /** Resumo financeiro do projeto (Fase 4: Financeiro do Projeto). */

@@ -131,13 +131,14 @@ export interface UpdateProjectInput {
 }
 
 /**
- * `status` mantido como `string` — app/projetos.tsx guarda esse valor em
- * useState('PENDING') tanto na criação quanto na edição de tarefa.
+ * Fase 6.1.8 — Status de tarefa tipado estritamente pelo enum
+ * `ProjectTaskStatus` (não mais `string`). `app/projetos.tsx` guarda esse
+ * valor em `useState<ProjectTaskStatus>('PENDING')` na edição de tarefa.
  */
 export interface CreateProjectTaskInput {
   title: string
   description?: string
-  status?: string
+  status?: ProjectTaskStatus
   priority?: number
   dueDate?: string
 }

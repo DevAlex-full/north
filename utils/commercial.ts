@@ -1,6 +1,7 @@
 import type { Lead, LeadStatus } from '../types/lead.types'
 import type { Project, ProjectFinance, ProjectTask } from '../types/project.types'
 import { startOfDaySP, endOfDaySP, getTodayString } from './date'
+import { getProjectProgress, type ProjectProgress } from './project-task-domain'
 
 /** As 7 colunas do Pipeline pedidas na Fase 4.2A, nesta ordem fixa. */
 export type PipelineColumnKey =
@@ -497,33 +498,22 @@ export function getProjectsWithNextAction(projects: Project[]): Project[] {
     })
 }
 
-/** Progresso de tarefas de um projeto (Fase 4.5). */
-export interface ProjectTaskProgress {
-  done: number
-  total: number
-  percent: number
-}
+/**
+ * Fase 4.5 / Fase 6.1.7 — Progresso de tarefas de um projeto. Alias de
+ * `ProjectProgress` (utils/project-task-domain.ts): estruturalmente
+ * idêntico, mantido sob este nome só por compatibilidade com os
+ * consumidores existentes (ex: app/dashboard-comercial.tsx,
+ * utils/daily-panel.ts).
+ */
+export type ProjectTaskProgress = ProjectProgress
 
 /**
- * Fase 4.5 — Progresso de um projeto pelo mesmo critério já usado em
- * app/projetos.tsx (`isTaskDone`): uma tarefa com subtarefas é
- * considerada concluída quando todas as subtarefas estão DONE; sem
- * subtarefas, usa o `task.status` da própria tarefa. Replicado aqui (em
- * vez de importado de projetos.tsx, que não exporta essa função) para não
- * precisar tocar num arquivo já validado nas Fases 4.3/4.4 só por causa
- * de um refactor de baixo risco.
+ * Fase 6.1.7 — Reexport de `getProjectProgress` (fonte única de verdade
+ * em utils/project-task-domain.ts) sob o nome já consumido pelo restante
+ * do app. Nenhuma regra própria: a lógica de conclusão/progresso não é
+ * mais duplicada aqui.
  */
-export function getProjectTaskProgress(project: Project): ProjectTaskProgress {
-  const tasks = project.projectTasks ?? []
-  const isDone = (t: ProjectTask) => {
-    const subtasks = t.subtasks ?? []
-    return subtasks.length > 0 ? subtasks.every((s) => s.status === 'DONE') : t.status === 'DONE'
-  }
-  const done = tasks.filter(isDone).length
-  const total = tasks.length
-  const percent = total > 0 ? Math.round((done / total) * 100) : 0
-  return { done, total, percent }
-}
+export const getProjectTaskProgress = getProjectProgress
 
 /**
  * Fase 4.5 — Projetos de cliente ativos com `deadline` dentro dos
