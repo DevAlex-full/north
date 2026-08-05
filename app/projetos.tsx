@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert, ActivityIndicator } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useProjectStore } from '../stores/project.store'
@@ -106,6 +106,31 @@ export default function ProjetosScreen() {
   const [detailProject, setDetailProject] = useState<Project | null>(null)
   // Fase 4.4D — Histórico financeiro do projeto em detalhe
   const { transactions, isLoading: transactionsLoading, reload: reloadTransactions } = useProjectTransactions(detailProject?.id ?? null)
+
+  /**
+   * Fase 6.1.8 (correção) — `detailProject` é uma cópia local do projeto
+   * aberto no modal de detalhe; o store já substitui a `ProjectTask`
+   * consolidada dentro de `projects` após cada mutação (ver
+   * stores/project.store.ts), mas essa cópia local não é atualizada
+   * automaticamente. Sem esta sincronização, o modal aberto continuaria
+   * mostrando etapas/subtarefas desatualizadas até ser fechado e reaberto.
+   * Não faz nenhuma requisição — só realinha a referência local com o
+   * projeto já presente em `projects`. Se o projeto tiver sido removido
+   * (ex: excluído em outra aba/sessão), fecha o modal em vez de deixá-lo
+   * apontando para um projeto inexistente.
+   */
+  useEffect(() => {
+    if (!detailProject) return
+    const updatedProject = projects.find((project) => project.id === detailProject.id)
+    if (!updatedProject) {
+      setShowDetailModal(false)
+      setDetailProject(null)
+      return
+    }
+    if (updatedProject !== detailProject) {
+      setDetailProject(updatedProject)
+    }
+  }, [projects, detailProject])
   const [editingTask, setEditingTask] = useState<ProjectTask | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [saving, setSaving] = useState(false)
@@ -711,15 +736,9 @@ function TaskItem({
           disabled={taskMutating}
         />
 
-        {hasSubtasks ? (
-          <TouchableOpacity style={{ flex: 1 }} onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} disabled={taskMutating}>
-            <Text style={[styles.taskTitleText, taskDone && styles.taskTitleDone]}>{task.title}</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.taskTitleText, taskDone && styles.taskTitleDone]}>{task.title}</Text>
-          </View>
-        )}
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.taskTitleText, taskDone && styles.taskTitleDone]}>{task.title}</Text>
+        </View>
 
         {taskMutating && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginHorizontal: SPACING.xs }} />}
 
