@@ -8,15 +8,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 const LOCAL_API_URL = 'http://192.168.1.27:3000/api/v1'
 const PRODUCTION_API_URL = 'https://north-back.onrender.com/api/v1'
 
-const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL?.trim() ||
-  (__DEV__ ? LOCAL_API_URL : PRODUCTION_API_URL)
+/**
+ * A URL local deve ser usada somente quando for fornecida explicitamente
+ * pelo ambiente de desenvolvimento (.env.local/Metro). Em builds instaladas
+ * e atualizações OTA, a ausência da variável nunca pode redirecionar o app
+ * para um IP privado da rede doméstica.
+ */
+const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL?.trim()
+const BASE_URL = (ENV_API_URL || PRODUCTION_API_URL).replace(/\/+$/, '')
 
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
 }
 
 console.log('[North API] Ambiente:', __DEV__ ? 'development' : 'production')
+console.log(
+  '[North API] Origem da URL:',
+  ENV_API_URL ? 'EXPO_PUBLIC_API_URL' : 'fallback de produção'
+)
 console.log('[North API] URL utilizada:', BASE_URL)
 
 const api: AxiosInstance = axios.create({
