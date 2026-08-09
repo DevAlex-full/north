@@ -666,13 +666,11 @@ export default function ProjetosScreen() {
  * tanto no card inline (projetos pessoais) quanto no modal de detalhe
  * (projetos de cliente), evitando duplicar a mesma lógica em dois lugares.
  *
- * Fase 6.1.8 — A linha principal sempre expõe controles separados: seta de
- * expandir (só quando há subtarefas), checkbox principal (sempre visível,
- * independente de haver subtarefas) e título (nunca dispara o toggle nem a
- * expansão por conta própria) — nenhuma dessas ações propaga para as
- * outras. A conclusão/reabertura e o progresso usam exclusivamente
- * `isProjectTaskDone`/`getProjectTaskSubtaskProgress`
- * (utils/project-task-domain.ts), nunca `task.status` diretamente.
+ * Correção funcional (pós-6.1.8) — a seta de expandir/recolher é sempre
+ * tocável, mesmo quando a etapa não tem nenhuma subtarefa ainda: é
+ * expandindo a área que o usuário chega ao campo "+ Adicionar subtarefa"
+ * para criar a primeira. Sem isso, uma etapa com `subtasks.length === 0`
+ * não tinha nenhum caminho no app para ganhar sua primeira subtarefa.
  */
 function TaskItem({
   project,
@@ -706,6 +704,9 @@ function TaskItem({
     try {
       await createSubTask(project.id, task.id, { title: trimmed, order: subtasks.length })
       setNewSubtitle('')
+      // Correção funcional — garante que a área continue expandida após
+      // criar a primeira subtarefa (o usuário já está olhando para ela).
+      setIsExpanded(true)
     } catch (err) {
       Alert.alert('Erro', getErrorMessage(err, 'Não foi possível criar a subtarefa. Tente novamente.'))
     } finally {
@@ -716,18 +717,14 @@ function TaskItem({
   return (
     <View style={styles.taskItemWrapper}>
       <View style={styles.taskRow}>
-        {hasSubtasks ? (
-          <TouchableOpacity
-            onPress={() => setIsExpanded(!isExpanded)}
-            style={styles.expandBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            disabled={taskMutating}
-          >
-            <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.expandBtn} />
-        )}
+        <TouchableOpacity
+          onPress={() => setIsExpanded(!isExpanded)}
+          style={styles.expandBtn}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          disabled={taskMutating}
+        >
+          <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
+        </TouchableOpacity>
 
         <Checkbox
           label=""

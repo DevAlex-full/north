@@ -66,9 +66,11 @@ export default function FinanceiroScreen() {
   const [source, setSource] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // Goal form
-  const [earnedAmount, setEarnedAmount] = useState('')
-  const [gasAmount, setGasAmount] = useState('')
+  // Goal form — Correção funcional (problema 1): earnedAmount/gasAmount
+  // deixaram de ser editáveis manualmente (o backend agora os recalcula
+  // sempre a partir das FinancialTransaction reais do dia). A única
+  // edição manual que sobra é a própria meta (targetAmount).
+  const [goalTarget, setGoalTarget] = useState('')
 
   const load = async () => {
     try {
@@ -120,19 +122,37 @@ export default function FinanceiroScreen() {
     finally { setSaving(false) }
   }
 
+  /**
+   * Correção funcional (problema 1) — edita somente `targetAmount`.
+   * `earnedAmount`/`gasAmount` são sempre recalculados pelo backend a
+   * partir das transações reais do dia (Meta Indrive nunca mais fica
+   * dessincronizada do Financeiro).
+   */
   const saveGoal = async () => {
-    const earned = parseFloat(earnedAmount.replace(',', '.') || '0')
-    const gas = parseFloat(gasAmount.replace(',', '.') || '0')
+    const target = parseFloat(goalTarget.replace(',', '.') || '0')
+    if (isNaN(target) || target <= 0) { Alert.alert('Atenção', 'Informe uma meta válida'); return }
     try {
-      await financialService.updateDailyGoal({ earnedAmount: earned, gasAmount: gas })
-      setShowGoalModal(false); await load()
-    } catch { Alert.alert('Erro', 'Não foi possível salvar meta') }
+      await financialService.updateDailyGoal({ targetAmount: target })
+      setShowGoalModal(false)
+      await load()
+    } catch { Alert.alert('Erro', 'Não foi possível salvar a meta') }
   }
 
   const deleteTransaction = (t: any) => {
     Alert.alert('Excluir', 'Excluir esta transação?', [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Excluir', style: 'destructive', onPress: async () => { await financialService.deleteTransaction(t.id); await load() } },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await financialService.deleteTransaction(t.id)
+            await load()
+          } catch {
+            Alert.alert('Erro', 'Não foi possível excluir a transação')
+          }
+        },
+      },
     ])
   }
 
@@ -160,8 +180,8 @@ export default function FinanceiroScreen() {
         <Card style={[{ borderColor: metaBatida ? COLORS.success + '55' : COLORS.border }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md }}>
             <Text style={styles.sectionTitle}>🚗 Meta Indrive</Text>
-            <TouchableOpacity onPress={() => { setEarnedAmount(String(dailyGoal?.earnedAmount || '')); setGasAmount(String(dailyGoal?.gasAmount || '')); setShowGoalModal(true) }}>
-              <Text style={{ color: COLORS.primary, fontSize: FONT_SIZE.sm, fontWeight: '700' }}>Editar</Text>
+            <TouchableOpacity onPress={() => { setGoalTarget(String(dailyGoal?.targetAmount || '')); setShowGoalModal(true) }}>
+              <Text style={{ color: COLORS.primary, fontSize: FONT_SIZE.sm, fontWeight: '700' }}>Editar meta</Text>
             </TouchableOpacity>
           </View>
           {metaBatida && <Text style={{ color: COLORS.success, fontWeight: '900', textAlign: 'center', fontSize: FONT_SIZE.lg, marginBottom: SPACING.sm }}>🎯 META BATIDA!</Text>}
@@ -280,10 +300,12 @@ export default function FinanceiroScreen() {
         )}
       </Modal>
 
-      {/* Modal Meta Indrive */}
-      <Modal visible={showGoalModal} onClose={() => setShowGoalModal(false)} title="🚗 Atualizar Meta Indrive">
-        <Input label="Total ganho hoje (R$)" value={earnedAmount} onChangeText={setEarnedAmount} placeholder="0,00" keyboardType="decimal-pad" />
-        <Input label="Gasto com gasolina (R$)" value={gasAmount} onChangeText={setGasAmount} placeholder="0,00" keyboardType="decimal-pad" />
+      {/* Modal Meta Indrive — Correção funcional: só a meta (targetAmount) é editável; ganho e gasolina vêm sempre das transações reais do dia. */}
+      <Modal visible={showGoalModal} onClose={() => setShowGoalModal(false)} title="🚗 Editar Meta Indrive">
+        <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginBottom: SPACING.sm }}>
+          Ganho e gasolina são calculados automaticamente a partir das transações do dia — registre-as como Entrada/Saída acima.
+        </Text>
+        <Input label="Meta diária (R$)" value={goalTarget} onChangeText={setGoalTarget} placeholder="150,00" keyboardType="decimal-pad" />
         <Button title="Salvar" onPress={saveGoal} size="lg" style={{ marginTop: SPACING.sm }} />
       </Modal>
     </View>

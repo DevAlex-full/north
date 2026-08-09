@@ -43,7 +43,10 @@ export default function AgendaScreen() {
     try {
       const d = await taskService.getAll(selectedDate)
       setTasks(d)
-    } catch {}
+    } catch (err) {
+      console.error('[Agenda] Falha ao carregar tarefas do dia', err)
+      Alert.alert('Erro', 'Não foi possível carregar as tarefas do dia. Puxe para baixo para tentar novamente.')
+    }
     setRefreshing(false)
   }
 
@@ -73,13 +76,31 @@ export default function AgendaScreen() {
 
   const toggleStatus = async (task: any) => {
     const next = task.status === 'DONE' ? 'PENDING' : 'DONE'
-    try { await taskService.update(task.id, { status: next }); await load() } catch {}
+    try {
+      await taskService.update(task.id, { status: next })
+      await load()
+    } catch (err) {
+      console.error('[Agenda] Falha ao atualizar status da tarefa', err)
+      Alert.alert('Erro', 'Não foi possível atualizar a tarefa. Tente novamente.')
+    }
   }
 
   const deleteTask = (task: any) => {
     Alert.alert('Excluir', `Excluir "${task.title}"?`, [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Excluir', style: 'destructive', onPress: async () => { await taskService.delete(task.id); await load() } }
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await taskService.delete(task.id)
+            await load()
+          } catch (err) {
+            console.error('[Agenda] Falha ao excluir tarefa', err)
+            Alert.alert('Erro', 'Não foi possível excluir a tarefa. Tente novamente.')
+          }
+        },
+      },
     ])
   }
 
