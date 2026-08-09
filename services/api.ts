@@ -5,17 +5,24 @@ import axios, {
 } from 'axios'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-const LOCAL_API_URL = 'http://192.168.1.27:3000/api/v1'
 const PRODUCTION_API_URL = 'https://north-back.onrender.com/api/v1'
 
 /**
- * A URL local deve ser usada somente quando for fornecida explicitamente
- * pelo ambiente de desenvolvimento (.env.local/Metro). Em builds instaladas
- * e atualizações OTA, a ausência da variável nunca pode redirecionar o app
- * para um IP privado da rede doméstica.
+ * A URL definida em EXPO_PUBLIC_API_URL existe exclusivamente para o
+ * desenvolvimento local via Metro/Expo Go.
+ *
+ * Em builds instaladas e atualizações OTA (__DEV__ === false), a aplicação
+ * IGNORA completamente EXPO_PUBLIC_API_URL e usa sempre o endpoint fixo de
+ * produção. Isso impede que um `.env.local`, variável de shell ou cache do
+ * Metro incorpore acidentalmente um IP privado (192.168.x.x/localhost) em uma
+ * OTA publicada para o aplicativo instalado.
  */
 const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL?.trim()
-const BASE_URL = (ENV_API_URL || PRODUCTION_API_URL).replace(/\/+$/, '')
+const DEVELOPMENT_API_URL = ENV_API_URL || PRODUCTION_API_URL
+const BASE_URL = (__DEV__ ? DEVELOPMENT_API_URL : PRODUCTION_API_URL).replace(
+  /\/+$/,
+  ''
+)
 
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
@@ -24,7 +31,9 @@ interface RetryableRequestConfig extends InternalAxiosRequestConfig {
 console.log('[North API] Ambiente:', __DEV__ ? 'development' : 'production')
 console.log(
   '[North API] Origem da URL:',
-  ENV_API_URL ? 'EXPO_PUBLIC_API_URL' : 'fallback de produção'
+  __DEV__ && ENV_API_URL
+    ? 'EXPO_PUBLIC_API_URL (somente desenvolvimento)'
+    : 'endpoint fixo de produção'
 )
 console.log('[North API] URL utilizada:', BASE_URL)
 
@@ -121,7 +130,6 @@ api.interceptors.response.use(
 
 export {
   BASE_URL,
-  LOCAL_API_URL,
   PRODUCTION_API_URL,
 }
 
