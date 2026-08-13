@@ -73,8 +73,8 @@ export default function DashboardScreen() {
             <Text style={[styles.metaValue, { color: COLORS.success }]}>{formatCurrency(fin.earned || 0)}</Text>
           </View>
           <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Gasolina</Text>
-            <Text style={[styles.metaValue, { color: COLORS.danger }]}>-{formatCurrency(fin.gas || 0)}</Text>
+            <Text style={styles.metaLabel}>Gastos</Text>
+            <Text style={[styles.metaValue, { color: COLORS.danger }]}>-{formatCurrency(fin.expenses || 0)}</Text>
           </View>
           <View style={styles.metaItem}>
             <Text style={styles.metaLabel}>Líquido</Text>

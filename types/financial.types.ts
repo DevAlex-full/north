@@ -16,7 +16,9 @@ export interface FinancialCategory {
  * Entidade FinancialTransaction retornada pela API. `projectId` (Fase 4)
  * vincula opcionalmente a transação a um projeto de cliente; `category`
  * vem populada quando o backend faz o include (todos os endpoints atuais
- * de transação já incluem a categoria).
+ * de transação já incluem a categoria). `affectsIndriveGoal` (correção
+ * Meta Indrive) indica estruturalmente se esta SAÍDA conta como despesa
+ * operacional do Indrive — nunca inferido de `description`.
  */
 export interface FinancialTransaction {
   id: string
@@ -29,6 +31,7 @@ export interface FinancialTransaction {
   date: string
   paymentMethod: string | null
   source: string | null
+  affectsIndriveGoal: boolean
   createdAt: string
   updatedAt: string
   category?: FinancialCategory
@@ -39,7 +42,9 @@ export interface FinancialTransaction {
  * mesma razão dos demais módulos: app/(tabs)/financeiro.tsx guarda esse
  * valor em useState('INCOME'), inferido como `string`. `projectId` é
  * totalmente novo na Fase 4 e não tem nenhum ponto de chamada existente,
- * por isso é tipado normalmente.
+ * por isso é tipado normalmente. `affectsIndriveGoal` (correção Meta
+ * Indrive) é opcional — só relevante para EXPENSE; Gasolina é forçada
+ * automaticamente pelo backend independente do que for enviado aqui.
  */
 export interface CreateTransactionInput {
   type: string
@@ -50,6 +55,7 @@ export interface CreateTransactionInput {
   date?: string
   paymentMethod?: string
   source?: string
+  affectsIndriveGoal?: boolean
 }
 
 export interface UpdateTransactionInput {
@@ -62,6 +68,7 @@ export interface UpdateTransactionInput {
   date?: string
   paymentMethod?: string
   source?: string
+  affectsIndriveGoal?: boolean
 }
 
 export interface TransactionFilters {
@@ -92,15 +99,14 @@ export interface DailyGoal {
   date: string
   targetAmount: number
   earnedAmount: number
-  gasAmount: number
+  /** Renomeado de `gasAmount` — correção Meta Indrive: representa todas as despesas operacionais do Indrive, não só gasolina. */
+  expenseAmount: number
   status: 'BELOW' | 'ALMOST' | 'REACHED'
   createdAt: string
   updatedAt: string
 }
 
 export interface UpdateDailyGoalInput {
-  earnedAmount?: number
-  gasAmount?: number
   targetAmount?: number
 }
 

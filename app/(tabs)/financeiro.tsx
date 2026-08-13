@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
+import { Checkbox } from '../../components/ui/Checkbox'
 import { ProgressBar } from '../../components/ui/ProgressBar'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme'
@@ -20,6 +21,24 @@ const PERIOD_OPTIONS = [
   { label: 'Semana', value: 'week' },
   { label: 'Mês', value: 'month' },
 ]
+
+/**
+ * Correção Meta Indrive — mesma normalização usada no backend (sem
+ * acento/caixa) só para decidir, na UI, se a categoria escolhida é
+ * Gasolina/Combustível (nesse caso o vínculo com o Indrive é automático
+ * e o checkbox fica travado marcado, sem exigir nada do usuário).
+ */
+function normalizeCategoryName(name?: string): string {
+  return (name ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+}
+function isGasCategoryName(name?: string): boolean {
+  const n = normalizeCategoryName(name)
+  return n === 'gasolina' || n === 'combustivel'
+}
 
 /**
  * Calcula o intervalo de datas (início/fim) correspondente ao período
@@ -64,9 +83,12 @@ export default function FinanceiroScreen() {
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [source, setSource] = useState('')
+  const [affectsIndrive, setAffectsIndrive] = useState(false)
   const [saving, setSaving] = useState(false)
+  /** Correção Meta Indrive — quando preenchido, o modal edita esta transação em vez de criar uma nova. */
+  const [editingTransaction, setEditingTransaction] = useState<any>(null)
 
-  // Goal form — Correção funcional (problema 1): earnedAmount/gasAmount
+  // Goal form — Correção funcional: earnedAmount/expenseAmount
   // deixaram de ser editáveis manualmente (o backend agora os recalcula
   // sempre a partir das FinancialTransaction reais do dia). A única
   // edição manual que sobra é a própria meta (targetAmount).
@@ -97,9 +119,46 @@ export default function FinanceiroScreen() {
     .filter(c => c.type === type)
     .map(c => ({ label: c.name, value: c.id }))
 
+  const selectedCategoryName = categories.find(c => c.id === categoryId)?.name
+  const selectedIsGas = type === 'EXPENSE' && isGasCategoryName(selectedCategoryName)
+
+  /**
+   * Correção UX (troca de categoria) — se a categoria selecionada SAI de
+   * Gasolina/Combustível para outra categoria, o vínculo automático
+   * deixa de se aplicar e o formulário não deve preservar
+   * `affectsIndrive = true` "por inércia" (o checkbox reapareceria já
+   * marcado, sem o usuário ter decidido isso). Só reseta nessa transição
+   * específica — trocar entre duas categorias não-Gasolina preserva a
+   * escolha explícita que o usuário já tinha feito.
+   */
+  const handleCategoryChange = (newCategoryId: string) => {
+    const wasGas = selectedIsGas
+    setCategoryId(newCategoryId)
+    if (wasGas) {
+      const newCategoryName = categories.find(c => c.id === newCategoryId)?.name
+      if (!isGasCategoryName(newCategoryName)) {
+        setAffectsIndrive(false)
+      }
+    }
+  }
+
   const openNew = (defaultType = 'INCOME') => {
+    setEditingTransaction(null)
     setType(defaultType)
-    setAmount(''); setDescription(''); setSource(''); setCategoryId('')
+    setAmount(''); setDescription(''); setSource(''); setCategoryId(''); setAffectsIndrive(false)
+    setSuggestion(null)
+    setShowModal(true)
+  }
+
+  /** Correção Meta Indrive — abre o modal em modo edição, pré-preenchido com a transação tocada. */
+  const openEdit = (t: any) => {
+    setEditingTransaction(t)
+    setType(t.type)
+    setAmount(String(t.amount).replace('.', ','))
+    setDescription(t.description || '')
+    setSource(t.source || '')
+    setCategoryId(t.categoryId)
+    setAffectsIndrive(!!t.affectsIndriveGoal)
     setSuggestion(null)
     setShowModal(true)
   }
@@ -110,12 +169,26 @@ export default function FinanceiroScreen() {
     if (isNaN(val) || val <= 0) { Alert.alert('Atenção', 'Valor inválido'); return }
     setSaving(true)
     try {
-      await financialService.createTransaction({ type, categoryId, amount: val, description: description || undefined, source: source || undefined })
-      if (type === 'INCOME') {
-        const s = await financialService.getSuggestion(val)
-        setSuggestion(s)
-      } else {
+      const payload = {
+        type,
+        categoryId,
+        amount: val,
+        description: description || undefined,
+        source: source || undefined,
+        affectsIndriveGoal: type === 'EXPENSE' ? affectsIndrive : undefined,
+      }
+      if (editingTransaction) {
+        await financialService.updateTransaction(editingTransaction.id, payload)
         setShowModal(false)
+        setEditingTransaction(null)
+      } else {
+        await financialService.createTransaction(payload)
+        if (type === 'INCOME') {
+          const s = await financialService.getSuggestion(val)
+          setSuggestion(s)
+        } else {
+          setShowModal(false)
+        }
       }
       await load()
     } catch { Alert.alert('Erro', 'Não foi possível registrar') }
@@ -123,8 +196,8 @@ export default function FinanceiroScreen() {
   }
 
   /**
-   * Correção funcional (problema 1) — edita somente `targetAmount`.
-   * `earnedAmount`/`gasAmount` são sempre recalculados pelo backend a
+   * Correção funcional — edita somente `targetAmount`.
+   * `earnedAmount`/`expenseAmount` são sempre recalculados pelo backend a
    * partir das transações reais do dia (Meta Indrive nunca mais fica
    * dessincronizada do Financeiro).
    */
@@ -156,7 +229,7 @@ export default function FinanceiroScreen() {
     ])
   }
 
-  const netProfit = (dailyGoal?.earnedAmount || 0) - (dailyGoal?.gasAmount || 0)
+  const netAmount = (dailyGoal?.earnedAmount || 0) - (dailyGoal?.expenseAmount || 0)
   const target = dailyGoal?.targetAmount || 150
   const metaBatida = dailyGoal?.status === 'REACHED'
 
@@ -191,16 +264,16 @@ export default function FinanceiroScreen() {
               <Text style={{ color: COLORS.success, fontSize: FONT_SIZE.lg, fontWeight: '800' }}>{formatCurrency(dailyGoal?.earnedAmount || 0)}</Text>
             </View>
             <View style={{ alignItems: 'center' }}>
-              <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.xs }}>Gasolina</Text>
-              <Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.lg, fontWeight: '800' }}>-{formatCurrency(dailyGoal?.gasAmount || 0)}</Text>
+              <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.xs }}>Gastos</Text>
+              <Text style={{ color: COLORS.danger, fontSize: FONT_SIZE.lg, fontWeight: '800' }}>-{formatCurrency(dailyGoal?.expenseAmount || 0)}</Text>
             </View>
             <View style={{ alignItems: 'center' }}>
               <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.xs }}>Líquido</Text>
-              <Text style={{ color: netProfit >= target ? COLORS.success : COLORS.warning, fontSize: FONT_SIZE.lg, fontWeight: '800' }}>{formatCurrency(netProfit)}</Text>
+              <Text style={{ color: netAmount >= target ? COLORS.success : COLORS.warning, fontSize: FONT_SIZE.lg, fontWeight: '800' }}>{formatCurrency(netAmount)}</Text>
             </View>
           </View>
-          <ProgressBar value={netProfit} total={target} label={`Meta: ${formatCurrency(target)}`} color={COLORS.success} />
-          {!metaBatida && <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.sm, textAlign: 'center' }}>Faltam {formatCurrency(Math.max(0, target - netProfit))}</Text>}
+          <ProgressBar value={netAmount} total={target} label={`Meta: ${formatCurrency(target)}`} color={COLORS.success} />
+          {!metaBatida && <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.sm, textAlign: 'center' }}>Faltam {formatCurrency(Math.max(0, target - netAmount))}</Text>}
         </Card>
 
         {/* Seletor de período */}
@@ -238,11 +311,13 @@ export default function FinanceiroScreen() {
         {transactions.length === 0
           ? <EmptyState icon="💳" title="Nenhuma transação" subtitle={`Nenhum lançamento em "${periodLabel}"`} onAction={() => openNew()} actionLabel="Adicionar" />
           : transactions.map(t => (
-            <TouchableOpacity key={t.id} onLongPress={() => deleteTransaction(t)} activeOpacity={0.8}>
+            <TouchableOpacity key={t.id} onPress={() => openEdit(t)} onLongPress={() => deleteTransaction(t)} activeOpacity={0.8}>
               <Card style={{ marginBottom: SPACING.xs }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.text, fontSize: FONT_SIZE.md, fontWeight: '600' }}>{t.category?.name || '-'}</Text>
+                    <Text style={{ color: COLORS.text, fontSize: FONT_SIZE.md, fontWeight: '600' }}>
+                      {t.category?.name || '-'}{t.affectsIndriveGoal ? ' 🚗' : ''}
+                    </Text>
                     {t.description ? <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.sm }}>{t.description}</Text> : null}
                     <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 }}>{formatDateShort(t.date)}</Text>
                   </View>
@@ -256,8 +331,12 @@ export default function FinanceiroScreen() {
         }
       </ScrollView>
 
-      {/* Modal Nova Transação */}
-      <Modal visible={showModal} onClose={() => { setShowModal(false); setSuggestion(null) }} title={type === 'INCOME' ? '💚 Nova Entrada' : '🔴 Nova Saída'}>
+      {/* Modal Nova Transação / Editar Transação */}
+      <Modal
+        visible={showModal}
+        onClose={() => { setShowModal(false); setSuggestion(null); setEditingTransaction(null) }}
+        title={editingTransaction ? (type === 'INCOME' ? '💚 Editar Entrada' : '🔴 Editar Saída') : (type === 'INCOME' ? '💚 Nova Entrada' : '🔴 Nova Saída')}
+      >
         {suggestion ? (
           <View>
             <Text style={{ color: COLORS.success, fontSize: FONT_SIZE.lg, fontWeight: '800', textAlign: 'center', marginBottom: SPACING.md }}>✅ Entrada registrada!</Text>
@@ -284,7 +363,7 @@ export default function FinanceiroScreen() {
           <View>
             <View style={{ flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md }}>
               {['INCOME', 'EXPENSE'].map(t => (
-                <TouchableOpacity key={t} onPress={() => { setType(t); setCategoryId('') }}
+                <TouchableOpacity key={t} onPress={() => { setType(t); setCategoryId(''); setAffectsIndrive(false) }}
                   style={[styles.typeBtn, type === t && { backgroundColor: t === 'INCOME' ? COLORS.success + '33' : COLORS.danger + '33', borderColor: t === 'INCOME' ? COLORS.success : COLORS.danger }]}>
                   <Text style={{ color: type === t ? (t === 'INCOME' ? COLORS.success : COLORS.danger) : COLORS.textMuted, fontWeight: '700' }}>
                     {t === 'INCOME' ? '💚 Entrada' : '🔴 Saída'}
@@ -293,9 +372,24 @@ export default function FinanceiroScreen() {
               ))}
             </View>
             <Input label="Valor (R$) *" value={amount} onChangeText={setAmount} placeholder="0,00" keyboardType="decimal-pad" />
-            <Select label="Categoria *" value={categoryId} options={catOptions} onChange={setCategoryId} placeholder="Selecionar categoria" />
+            <Select label="Categoria *" value={categoryId} options={catOptions} onChange={handleCategoryChange} placeholder="Selecionar categoria" />
             <Input label="Descrição" value={description} onChangeText={setDescription} placeholder="Opcional..." />
-            <Button title={saving ? 'Registrando...' : 'Registrar'} onPress={save} loading={saving} size="lg" style={{ marginTop: SPACING.sm }} />
+            {type === 'EXPENSE' && (
+              selectedIsGas ? (
+                <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZE.sm, marginBottom: SPACING.md }}>
+                  🚗 Gasolina conta automaticamente como despesa operacional do Indrive.
+                </Text>
+              ) : (
+                <View style={{ marginBottom: SPACING.md }}>
+                  <Checkbox
+                    label="🚗 Despesa operacional do Indrive (pedágio, estacionamento, lavagem, etc.)"
+                    checked={affectsIndrive}
+                    onToggle={() => setAffectsIndrive(!affectsIndrive)}
+                  />
+                </View>
+              )
+            )}
+            <Button title={saving ? 'Salvando...' : (editingTransaction ? 'Salvar' : 'Registrar')} onPress={save} loading={saving} size="lg" style={{ marginTop: SPACING.sm }} />
           </View>
         )}
       </Modal>
